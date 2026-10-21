@@ -1,0 +1,27 @@
+[project]
+name = "margen-server"
+version = "0.7.0"
+description = "De notas a publicaciones, con un camino de vuelta."
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.34,<1",
+  "httpx>=0.28,<1",
+  "markdown-it-py>=3,<5",
+  "lxml>=5,<7",
+  "pillow>=11,<13",
+  "pyyaml>=6,<7",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["margen"]

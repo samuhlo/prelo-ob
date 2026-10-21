@@ -1,0 +1,27 @@
+# Preserve the existing deployment and data volume when the checkout is renamed.
+name: margen
+
+services:
+  margen:
+    build: ./server
+    restart: unless-stopped
+    ports:
+      - "${MARGEN_BIND:-127.0.0.1}:${MARGEN_PORT:-8765}:8765"
+    environment:
+      MARGEN_TOKEN: ${MARGEN_TOKEN:?Run python3 scripts/setup.py first}
+      MARGEN_DATA: /data
+      MARGEN_PUBLIC_URL: ${MARGEN_PUBLIC_URL:-http://127.0.0.1:8765}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_PROVIDER: ${AI_PROVIDER:-compatible}
+      CODEX_BRIDGE_URL: ${CODEX_BRIDGE_URL:-http://host.docker.internal:8766}
+    volumes:
+      - margen-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8765/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+volumes:
+  margen-data:

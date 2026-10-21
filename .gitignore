@@ -1,0 +1,25 @@
+.env*
+!.env.example
+.venv/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+node_modules/
+data/
+dist/*
+!dist/.gitkeep
+plugin/main.js
+plugin/sql-wasm.wasm
+.DS_Store
+.codegraph/
+.ruff_cache/
+.coverage
+conexion-prelo.json
+connection.json
+*.log
+# Local deployment notes and probes are not part of the public project.
+/docs/validacion-*.md
+!/docs/validacion-publica.md
+/docs/kobo-wifi.md
+/scripts/smoke_real_vault.py
+/scripts/prepare_homelab.py

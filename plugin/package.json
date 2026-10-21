@@ -1,0 +1,21 @@
+{
+  "name": "prelo-obsidian",
+  "version": "0.7.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc --noEmit && node build.mjs",
+    "test": "tsx --test tests/*.test.ts && node --test tests/distribution.test.mjs"
+  },
+  "dependencies": {
+    "sql.js": "^1.13.0"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "@types/node": "^22.0.0",
+    "@types/sql.js": "^1.4.9",
+    "esbuild": "^0.25.0",
+    "obsidian": "^1.8.7",
+    "tsx": "^4.20.0",
+    "typescript": "^5.8.0"
+  }
+}
