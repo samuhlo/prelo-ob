@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 
 
 def read_env(path):
-    return dict(line.split("=", 1) for line in Path(path).read_text().splitlines()
+    return dict(line.split("=", 1) for line in Path(path).read_text(encoding="utf-8-sig").splitlines()
                 if "=" in line and not line.lstrip().startswith("#"))
 
 

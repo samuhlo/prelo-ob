@@ -15,7 +15,7 @@ def audit(root):
     secrets = []
     env = root / '.env'
     if env.exists():
-        for line in env.read_text().splitlines():
+        for line in env.read_text(encoding="utf-8-sig").splitlines():
             key, sep, value = line.partition('=')
             if sep and re.search('TOKEN|KEY|PASSWORD|SECRET', key) and len(value) >= 24:
                 secrets.append(value)
@@ -24,7 +24,7 @@ def audit(root):
         if path.suffix in {'.png', '.jpg', '.webp'}:
             findings.append((path.relative_to(root).as_posix(), 'public images need explicit review'))
             continue
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8-sig")
         # The audit's own rules deliberately mention prohibited patterns.
         patterns = [] if path.name == 'audit_public.py' else PATTERNS
         if any(re.search(pattern, text) for pattern in patterns) or any(value in text for value in secrets):

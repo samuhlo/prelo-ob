@@ -23,8 +23,8 @@ def build(root=ROOT):
     findings = audit(root)
     if findings:
         raise ValueError('Public source audit failed: ' + ', '.join(path for path, _ in findings))
-    manifest = json.loads((root / 'manifest.json').read_text())
-    if manifest != json.loads((root / 'dist/margen/manifest.json').read_text()):
+    manifest = json.loads((root / 'manifest.json').read_text(encoding="utf-8-sig"))
+    if manifest != json.loads((root / 'dist/margen/manifest.json').read_text(encoding="utf-8-sig")):
         raise ValueError('Build the plugin again: the release manifest is stale.')
     version = manifest['version']
     out = root / 'dist/releases' / version

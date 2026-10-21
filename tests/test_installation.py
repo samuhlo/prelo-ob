@@ -30,15 +30,15 @@ def test_plugin_install_and_update_preserve_state_and_other_plugins(fixture):
     connection = {'serverUrl': 'https://reader.example.test', 'token': 'synthetic-' + 'x' * 32,
                   'highlightsFolder': 'Reading/Highlights'}
     target = plugin_install(vault, root=root, connection=connection, enable=True)
-    state = json.loads((target / 'data.json').read_text())
+    state = json.loads((target / 'data.json').read_text(encoding="utf-8-sig"))
     state['composer'] = {'paths': ['kept.md'], 'step': 2}
     (target / 'data.json').write_text(json.dumps(state))
     before = (target / 'data.json').read_bytes()
     (root / 'dist/margen/main.js').write_text('/* upgraded fixture */')
     plugin_install(vault, root=root, enable=True)
     assert (target / 'data.json').read_bytes() == before
-    assert json.loads(enabled.read_text()) == ['another-plugin', 'margen']
-    assert (target / 'main.js').read_text() == '/* upgraded fixture */'
+    assert json.loads(enabled.read_text(encoding="utf-8-sig")) == ['another-plugin', 'margen']
+    assert (target / 'main.js').read_text(encoding="utf-8-sig") == '/* upgraded fixture */'
     assert list((root / 'data/plugin-backups').glob('*/margen/data.json'))
     assert not (target / 'sql-wasm.wasm').exists()
     if os.name != 'nt':
@@ -91,7 +91,7 @@ def test_usb_config_preserves_existing_vault_and_writes_bounded_login_agent(fixt
     agents = []
     monkeypatch.setattr(install_usb, 'load_agent', lambda label, path: agents.append((label, path)))
     install_usb.install(runtime, env, label='local.prelo.kobo')
-    result = json.loads((runtime / 'usb.json').read_text())
+    result = json.loads((runtime / 'usb.json').read_text(encoding="utf-8-sig"))
     assert result['vault'] == str(vault)
     assert result['highlights_folder'] == 'Existing/Quotes'
     assert result['auto_eject'] is False
@@ -101,7 +101,7 @@ def test_usb_config_preserves_existing_vault_and_writes_bounded_login_agent(fixt
 
 def test_check_only_does_not_create_runtime_or_start_services(fixture, tmp_path, monkeypatch):
     root, vault = fixture
-    (root / 'manifest.json').write_text((root / 'dist/margen/manifest.json').read_text())
+    (root / 'manifest.json').write_text((root / 'dist/margen/manifest.json').read_text(encoding="utf-8-sig"))
     runtime = tmp_path / 'runtime'
     monkeypatch.setattr(installer, 'preflight', lambda *args: 'synthetic-context')
     def unexpected(*args, **kwargs):
@@ -110,3 +110,18 @@ def test_check_only_does_not_create_runtime_or_start_services(fixture, tmp_path,
     monkeypatch.setattr(installer, 'install_usb', unexpected)
     installer.install_service(vault, root=root, runtime=runtime, check=True)
     assert not runtime.exists()
+
+
+def test_connection_cli_accepts_utf8_with_bom(fixture, tmp_path, monkeypatch, capsys):
+    import install_plugin
+    _, vault = fixture
+    connection = {'serverUrl': 'https://reader.example.test', 'token': 'synthetic-' + 'x' * 32,
+                  'highlightsFolder': 'Lecturas/Anotación 日本語'}
+    config = tmp_path / 'conexion.json'
+    config.write_text(json.dumps(connection, ensure_ascii=False), encoding='utf-8-sig')
+    received = []
+    monkeypatch.setattr(sys, 'argv', ['install_plugin.py', str(vault), '--connection', str(config)])
+    monkeypatch.setattr(install_plugin, 'install', lambda vault, **kwargs: received.append(kwargs) or vault)
+    install_plugin.main()
+    assert received[0]['connection']['highlightsFolder'] == connection['highlightsFolder']
+    assert connection['token'] not in capsys.readouterr().out

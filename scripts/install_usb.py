@@ -18,7 +18,7 @@ def install(runtime, env_file, *, vault=None, folder=None, server_url=None, labe
     if not python.is_file():
         raise ValueError("Prepara primero el entorno con scripts/install_bridge.py.")
     config_path = runtime / "usb.json"
-    config = json.loads(config_path.read_text()) if config_path.exists() else {}
+    config = json.loads(config_path.read_text(encoding="utf-8-sig")) if config_path.exists() else {}
     selected = vault or config.get("vault")
     if not selected:
         raise ValueError("Indica el vault con --vault /ruta/al/vault.")

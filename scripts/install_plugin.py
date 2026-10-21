@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def install(vault, *, root=ROOT, connection=None, enable=False, second_brain=False):
     vault = validate_vault(vault)
     source = Path(root) / "dist/margen"
-    manifest = json.loads((source / "manifest.json").read_text())
+    manifest = json.loads((source / "manifest.json").read_text(encoding="utf-8-sig"))
     if manifest["id"] != "margen":
         raise ValueError("Este paquete no es el plugin de Prelo.")
     files = {name: (source / name).read_bytes() for name in ["main.js", "manifest.json", "styles.css"]}
@@ -35,7 +35,7 @@ def install(vault, *, root=ROOT, connection=None, enable=False, second_brain=Fal
         if second_brain:
             settings.update(outputFolder="99_Recursos/adjuntos/Margen", highlightsFolder="02_Cerebro/Media_&_Consumo/Subrayados_Kobo")
     enabled_path = vault / ".obsidian/community-plugins.json"
-    enabled = json.loads(enabled_path.read_text()) if enabled_path.exists() else []
+    enabled = json.loads(enabled_path.read_text(encoding="utf-8-sig")) if enabled_path.exists() else []
     if not isinstance(enabled, list):
         raise ValueError("No se reconoce la lista de plugins; se conserva.")
     if target.exists() or enable and enabled_path.exists():
@@ -66,7 +66,7 @@ def main():
     parser.add_argument("--enable", action="store_true")
     parser.add_argument("--second-brain", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
-    connection = json.loads(args.connection.read_text()) if args.connection else None
+    connection = json.loads(args.connection.read_text(encoding="utf-8-sig")) if args.connection else None
     target = install(args.vault, connection=connection, enable=args.enable, second_brain=args.second_brain)
     print(f"Prelo instalado en {target}. Abre Obsidian y activa Prelo en Complementos de la comunidad.")
 

@@ -61,7 +61,7 @@ def preflight(runtime, ai, root=ROOT):
             raise ValueError("El puerto del puente (8766) está ocupado por otra instalación; no se modifica.")
     context = run(["docker", "context", "show"], timeout=10).stdout.strip()
     if marker.exists():
-        previous = json.loads(marker.read_text())
+        previous = json.loads(marker.read_text(encoding="utf-8-sig"))
         if previous.get("docker_context") != context:
             raise ValueError("El contexto Docker cambió. Selecciona el contexto de la instalación original antes de actualizar.")
     docker = ["docker", "--context", context]
@@ -84,7 +84,7 @@ def install_service(vault, *, ai=None, root=ROOT, runtime=None, check=False):
     previous_env = read_env(env_file) if env_file.exists() else {}
     selected_ai = ai or ("codex" if previous_env.get("AI_PROVIDER") == "codex-bridge" else "none")
     context = preflight(runtime, selected_ai, root)
-    version = json.loads((Path(root) / "manifest.json").read_text())["version"]
+    version = json.loads((Path(root) / "manifest.json").read_text(encoding="utf-8-sig"))["version"]
     if check:
         print(f"Requisitos correctos. Vault: {vault}; versión {version}; modo {selected_ai}. No se ha instalado nada.")
         return
@@ -170,7 +170,7 @@ def main():
             validate_vault(vault)
             print("Vault válido; no se ha instalado nada.")
             return
-        connection = validate_connection(json.loads(args.connection.read_text())) if args.connection else None
+        connection = validate_connection(json.loads(args.connection.read_text(encoding="utf-8-sig"))) if args.connection else None
         install_plugin(vault, connection=connection, enable=True)
         print("Plugin instalado. Abre Obsidian y conecta Prelo a tu servidor desde sus ajustes.")
     else:
