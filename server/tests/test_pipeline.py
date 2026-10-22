@@ -286,3 +286,21 @@ def test_service_version_matches_release_metadata(client):
     assert app.version == __version__ == manifest["version"]
     assert client.get("/health").json()["version"] == __version__
     assert client.get("/v1/library", headers=AUTH).json()["version"] == __version__
+
+
+def test_oversized_job_explains_rejection_without_echoing_notes(client):
+    payload = {"notes": [{"id": str(i), "path": f"{i}.md", "title": "Nota",
+                           "markdown": "PRIVATE_NOTE" + "x" * 160_000} for i in range(4)]}
+    response = client.post("/v1/jobs", headers=AUTH, json={"id": str(uuid.uuid4()), "publication": payload})
+    assert response.status_code == 422
+    assert "600.000" in response.json()["detail"]
+    assert "PRIVATE_NOTE" not in response.text
+    assert len(response.content) < 1000
+
+
+def test_invalid_field_returns_explanation_without_input(client):
+    payload = {**PAYLOAD, "title": "PRIVATE_TITLE" * 20}
+    response = client.post("/v1/publications", headers=AUTH, json=payload)
+    assert response.status_code == 422
+    assert "title" in response.json()["detail"] and "160" in response.json()["detail"]
+    assert "PRIVATE_TITLE" not in response.text

@@ -6,7 +6,7 @@ import { promises as fs, constants as fsConstants } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { openKoboDatabase } from "./sqlite";
-import { appendHighlight, hash, readHighlights, ResolvedHighlight, highlightFilename, modernizeHighlightDates, safeRelative } from "./core";
+import { apiErrorMessage, validateNoteSizes, appendHighlight, hash, readHighlights, ResolvedHighlight, highlightFilename, modernizeHighlightDates, safeRelative } from "./core";
 import { writingModes, studyAids, WritingMode, StudyAids } from "./editorial";
 import { Composer, emptyComposer, MARGEN_ICON, STUDIO_TYPE, StudioTab, StudioView } from "./studio";
 import { addPaths, renamePaths } from "./selection";
@@ -302,7 +302,7 @@ export default class Prelo extends Plugin {
     });
     if (response.status >= 400) {
       let message = `El servicio respondió ${response.status}.`;
-      try { const detail = response.json.detail; if (typeof detail === "string") message = detail; } catch {}
+      try { message = apiErrorMessage(response.status, response.json.detail); } catch {}
       throw new Error(message);
     }
     return response;
@@ -345,8 +345,10 @@ export default class Prelo extends Plugin {
   }
   async prepare(files: TFile[]): Promise<{ notes: Source[]; assets: Asset[] }> {
     const idByPath = new Map<string, string>();
-    const identities = await Promise.all(files.map(async file => ({
-      path: file.path, sha256: hash(await this.app.vault.read(file)),
+    const rawNotes = await Promise.all(files.map(file => this.app.vault.read(file)));
+    validateNoteSizes(rawNotes);
+    const identities = await Promise.all(files.map(async (file, index) => ({
+      path: file.path, sha256: hash(rawNotes[index]),
       id: this.app.metadataCache.getFileCache(file)?.frontmatter?.margen_id || this.state.sources[file.path] || null,
     })));
     const registered = (await this.api("/v1/sources", { notes: identities })).json.notes as { id: string; path: string }[];
@@ -393,6 +395,7 @@ export default class Prelo extends Plugin {
       const title = cache?.headings?.find(h => h.level === 1)?.heading || file.basename;
       notes.push({ id: idByPath.get(file.path)!, path: file.path, title, markdown, original_sha256: hash(raw) });
     }
+    validateNoteSizes(notes.map(note => note.markdown));
     // Persist identity with the note so moves and another computer keep its provenance.
     // Do this after resolving link offsets from the original metadata cache.
     for (const file of files) {

@@ -90,3 +90,23 @@ export function appendHighlight(current: string, h: ResolvedHighlight, sourcePat
   const updated = current.includes(`<!-- margen:${h.key}:`);
   return current.trimEnd() + "\n\n" + (updated ? "**Actualización del subrayado**\n\n" : "") + block.text;
 }
+
+
+export function apiErrorMessage(status: number, detail: unknown): string {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail.slice(0, 5).flatMap(error =>
+      typeof error?.msg === "string" ? [error.msg.replace(/^Value error, /, "")] : []);
+    if (messages.length) return messages.join("\n");
+  }
+  return `El servicio respondió ${status}.`;
+}
+
+export function validateNoteSizes(texts: string[]): void {
+  const sizes = texts.map(text => Array.from(text).length);
+  if (sizes.some(size => size > 200_000))
+    throw new Error("Una nota supera los 200.000 caracteres. Divídela en varias notas para publicarla.");
+  const total = sizes.reduce((sum, size) => sum + size, 0);
+  if (total > 600_000)
+    throw new Error(`La selección tiene ${total.toLocaleString("es-ES")} caracteres; el máximo por edición es 600.000. Reduce la selección o divídela en varios números.`);
+}

@@ -1,5 +1,11 @@
 # Cambios
 
+## 0.8.1 — Errores de generación claros
+
+- Explica los rechazos de validación en lugar de mostrar únicamente el código 422.
+- Comprueba el tamaño de la selección antes de enviarla; conserva los límites de 600.000 caracteres por edición y 200.000 por nota.
+- Las respuestas de validación no incluyen el contenido de las notas.
+
 ## 0.8.0 — Redacción, estudio y actualizaciones
 
 - Modos de redacción, apoyos de estudio e instrucciones extra con bloqueo del orden.

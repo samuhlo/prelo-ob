@@ -8,6 +8,7 @@ import io
 import threading
 from pathlib import Path
 from fastapi import FastAPI, Depends, Header, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from . import __version__
 from .models import PublicationRequest, HighlightsRequest, WritingMode, StudyAids
@@ -37,6 +38,17 @@ def auth(authorization: str = Header(default="")):
 
 
 app = FastAPI(title="Prelo", version=__version__, docs_url=None, redoc_url=None, openapi_url=None)
+
+
+@app.exception_handler(RequestValidationError)
+async def invalid_request(request, exc):
+    # Return the reason, never Pydantic's echoed input (which can contain full notes).
+    messages = []
+    for error in exc.errors()[:5]:
+        location = ".".join(str(part) for part in error["loc"] if part != "body")
+        message = error["msg"].removeprefix("Value error, ")
+        messages.append(f"{location}: {message}" if location else message)
+    return JSONResponse({"detail": "\n".join(messages)}, status_code=422)
 
 
 @app.exception_handler(ValueError)
