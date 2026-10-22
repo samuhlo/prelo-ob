@@ -6,7 +6,7 @@
 
 Prelo convierte una selección de notas de Obsidian en una publicación EPUB para Kobo. Preparas la lectura, la dejas en la cola y, cuando conectas el lector por USB al Mac, el conector recoge las anotaciones y entrega las publicaciones pendientes. Los subrayados vuelven al vault con enlaces a sus notas de origen.
 
-**Primera beta pública: 0.7.0.** [Descargar para Mac](https://github.com/samuhlo/prelo-ob/releases/download/0.7.0/prelo-macos-0.7.0.zip) · [Descargar solo el plugin](https://github.com/samuhlo/prelo-ob/releases/download/0.7.0/prelo-plugin-0.7.0.zip) · [Releases](https://github.com/samuhlo/prelo-ob/releases)
+**Beta actual: 0.8.0.** [Descargar para Mac](https://github.com/samuhlo/prelo-ob/releases/download/0.8.0/prelo-macos-0.8.0.zip) · [Descargar solo el plugin](https://github.com/samuhlo/prelo-ob/releases/download/0.8.0/prelo-plugin-0.8.0.zip) · [Releases](https://github.com/samuhlo/prelo-ob/releases)
 
 ## Instalar
 
@@ -15,7 +15,7 @@ Prelo tiene dos piezas: un servicio en el Mac que genera las publicaciones y ges
 ### En el Mac al que conectarás el Kobo
 
 1. Ten Obsidian y un vault abierto al menos una vez. Instala [uv](https://docs.astral.sh/uv/getting-started/installation/) y [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/), o usa tu Colima ya configurado e iniciado.
-2. Descarga y descomprime **prelo-macos-0.7.0.zip** desde la release. Cierra Obsidian antes de instalar.
+2. Descarga y descomprime **prelo-macos-0.8.0.zip** desde la release. Cierra Obsidian antes de instalar.
 3. Abre **Instalar Prelo.command**. Indica la carpeta del vault y elige si quieres usar tu Codex CLI para IA; puedes empezar sin IA.
 4. Abre Obsidian. En **Ajustes → Complementos de la comunidad**, activa Prelo si es necesario.
 
@@ -25,7 +25,7 @@ El paquete incluye el plugin compilado: no necesitas Node ni compilar el proyect
 
 ### Plugin en otros ordenadores
 
-Puedes instalarlo con [BRAT](https://github.com/TfTHacker/obsidian42-brat): añade `samuhlo/prelo-ob` como plugin beta y selecciona la versión `0.7.0`. También puedes descomprimir el ZIP del plugin y copiar `margen` a `.obsidian/plugins/` de tu vault.
+Puedes instalarlo con [BRAT](https://github.com/TfTHacker/obsidian42-brat): añade `samuhlo/prelo-ob` como plugin beta y selecciona la versión `0.8.0`. También puedes descomprimir el ZIP del plugin y copiar `margen` a `.obsidian/plugins/` de tu vault.
 
 Después importa el archivo privado de conexión de **tu propio servidor** desde **Prelo: Conectar con el servidor**. Para usarlo desde otro equipo, el Mac necesita una dirección accesible por HTTPS en tu red privada; `127.0.0.1` solo sirve en el propio Mac. [Conectar otro ordenador](docs/instalacion.md#conectar-otro-ordenador).
 
@@ -35,7 +35,7 @@ Instalar únicamente el plugin requiere que ya exista un servicio Prelo. La publ
 
 1. Pulsa el icono de **revista** de Prelo en Obsidian.
 2. Selecciona notas por título o carpeta y ordénalas.
-3. Elige **Revista de estudio** o **Revista 90's** y crea la publicación.
+3. Elige **Revista de estudio** o **Revista 90's**, la redacción y los apoyos para estudiar, y crea la publicación.
 4. Conecta el Kobo por USB al Mac y acepta **Conectar** en su pantalla.
 5. El conector importa los subrayados, copia la cola, verifica los archivos y expulsa el lector.
 6. Lee sin conexión. En la siguiente conexión USB, las nuevas citas regresan al vault.
@@ -45,12 +45,17 @@ La sincronización con el Kobo es por USB. El cable forma parte del ritmo del pr
 ## Qué incluye
 
 - Una vista propia en Obsidian con selección, biblioteca, borradores y cola.
+- Avisos de nuevas versiones en el plugin, comprobación manual y versión del servidor visible. Cada equipo actualiza su plugin por separado mediante BRAT o el ZIP.
 - EPUB 3 con portada, índice, imágenes locales, tablas y código.
-- **Revista de estudio** sin IA por defecto. **Revista 90's** con organización e ilustraciones opcionales mediante Codex.
-- Cuerpos de los artículos conservados: la IA organiza y titula, sin reescribir tus notas.
+- **Revista de estudio** sin IA por defecto. **Revista 90's** con portada general y una carátula de juego retro por nota mediante Codex.
+- **Redacción independiente del diseño**: notas originales (por defecto), revista narrativa, explicación sencilla, paso a paso o repaso rápido.
+- **Apoyos opcionales con IA**: esquemas y tablas, preguntas con respuestas o un kit completo; compatibles con ambos tipos de revista. Son contenido Markdown legible sin conexión, no imágenes generadas adicionales.
+- El modo original conserva el cuerpo de las notas. Los demás adaptan solo el EPUB, identifican el texto como adaptación con IA y conservan la procedencia; el vault no se modifica. Repaso rápido condensa y omite detalles.
+- **Instrucciones extra**: pide, por ejemplo, que cada tema vaya seguido de su examen resuelto. Activan IA aunque el texto se conserve original. Puedes bloquear el orden exacto de la selección; ese bloqueo prevalece sobre cualquier reorganización.
+- Los borradores guardan también la redacción, los apoyos y las preferencias de IA y envío.
 - Ediciones independientes e identidades estables para conservar la procedencia.
 - Importaciones repetibles sin duplicar citas; actualizaciones que conservan comentarios anteriores.
-- Biblioteca con límite configurable de almacenamiento y ediciones protegidas.
+- Biblioteca con límite configurable de almacenamiento y ediciones protegidas. En el menú de cada publicación puedes **Eliminar EPUB**: retira el archivo y cancela su envío, conservando subrayados e historial. Las copias del Kobo o del vault se mantienen.
 - Servicio personal, con acceso autenticado y datos propios. No requiere un servicio alojado por el autor.
 
 ## Compatibilidad y estado

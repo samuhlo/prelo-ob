@@ -6,7 +6,7 @@ export type Highlight = {
   text: string; annotation: string; title: string; author: string; created_at: string; color: string;
 };
 export type ResolvedHighlight = Highlight & {
-  key: string; match: string; publication_id: string | null; publication_title: string;
+  key: string; match: string; content_note?: string; publication_id: string | null; publication_title: string;
   source: { id: string; path: string; title: string; sha256: string } | null;
 };
 export const hash = (value: string | Uint8Array) => createHash("sha256").update(value).digest("hex");
@@ -78,6 +78,7 @@ export function importBlock(h: ResolvedHighlight, sourcePath: string | null) {
   if (h.annotation) lines.push("**Anotación en Kobo:**", "", ...h.annotation.split("\n").map(line => "> " + line), "");
   if (sourcePath) lines.push(`Origen: [[${sourcePath.replace(/\.md$/i, "")}]]`, "");
   else if (h.match === "unresolved" || h.source) lines.push("*Origen pendiente de vincular.*", "");
+  if (h.content_note) lines.push(h.content_note, "");
   if (h.publication_id) lines.push(`Edición: ${h.publication_title} · ${h.publication_id}`, "");
   if (h.created_at) lines.push(`Fecha : ${readerDate(h.created_at)}`, "");
   return { marker, text: lines.join("\n") + "\n---\n" };

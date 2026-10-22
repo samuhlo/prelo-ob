@@ -9,7 +9,8 @@ import threading
 from pathlib import Path
 from fastapi import FastAPI, Depends, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
-from .models import PublicationRequest, HighlightsRequest
+from . import __version__
+from .models import PublicationRequest, HighlightsRequest, WritingMode, StudyAids
 from .editor import ai_available, plan_publication
 from .epub import build_epub
 from .highlights import resolve
@@ -35,7 +36,7 @@ def auth(authorization: str = Header(default="")):
         raise HTTPException(401, "Credencial de Prelo no válida.")
 
 
-app = FastAPI(title="Prelo", version="0.7.0", docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(title="Prelo", version=__version__, docs_url=None, redoc_url=None, openapi_url=None)
 
 
 @app.exception_handler(ValueError)
@@ -63,7 +64,7 @@ async def limit_body(request: Request, call_next):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "0.7.0"}
+    return {"status": "ok", "version": __version__}
 
 
 @app.get("/v1/status", dependencies=[Depends(auth)])
@@ -217,11 +218,11 @@ def register_sources(payload: SourceRegistration):
 
 @app.get("/v1/library", dependencies=[Depends(auth)])
 def library_status():
-    return {**library.dashboard(data_root()), "jobs": all_jobs(), "version": "0.7.0"}
+    return {**library.dashboard(data_root()), "jobs": all_jobs(), "version": __version__}
 
 
 class LibraryAction(BaseModel):
-    action: Literal["queue", "cancel", "pin", "unpin"]
+    action: Literal["queue", "cancel", "pin", "unpin", "delete"]
 
 
 @app.post("/v1/publications/{edition_id}/action", dependencies=[Depends(auth)])
@@ -321,7 +322,12 @@ class Draft(BaseModel):
     id: str
     title: str = Field(default="", max_length=160)
     intent: str = Field(default="", max_length=2000)
+    preserve_order: bool = False
     style: Literal["study", "retro90"] = "study"
+    writing_mode: WritingMode = "original"
+    study_aids: StudyAids = "none"
+    use_ai: bool = False
+    send_to_kobo: bool = True
     paths: list[str] = Field(min_length=1, max_length=100)
 
 

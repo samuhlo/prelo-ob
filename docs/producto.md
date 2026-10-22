@@ -16,7 +16,7 @@ La autenticación personal de Codex es un adaptador para el prototipo del usuari
 
 ### 1. Recorrido fiable
 
-Plugin → notas seleccionadas → orden editorial con IA → EPUB → Kobo por USB → subrayados enlazados. La publicación conserva cada texto y su procedencia. Ediciones independientes para evitar sustituir a ciegas un libro ya subrayado.
+Plugin → notas seleccionadas → orden editorial con IA → EPUB → Kobo por USB → subrayados enlazados. La redacción original conserva cada texto; las adaptaciones mantienen la procedencia y se identifican como contenido elaborado con IA. Ediciones independientes para evitar sustituir a ciegas un libro ya subrayado.
 
 ### 2. Edición de verdad
 
@@ -32,7 +32,7 @@ Vista previa del índice y la portada. Cambiar títulos, reordenar, quitar un ar
 
 ### 4. Guía de estudio con IA
 
-Combinar y reescribir varias notas, hacer resúmenes y preguntas basadas en fuentes. Cada bloque generado conserva sus fuentes, que pueden ser varias. Distinguir texto original, síntesis y contenido adicional. Los subrayados enlazan la edición leída y las notas de origen sin presentar una síntesis como cita literal.
+Disponible: redacción original, narrativa, sencilla, paso a paso y repaso rápido, independiente del tipo de revista. Los apoyos opcionales añaden esquemas, tablas y preguntas con respuestas. Cada artículo mantiene una única nota de origen y las transiciones pueden enlazar otros artículos. Pendiente: combinar varias notas en un mismo bloque. Cada bloque generado conserva sus fuentes, que pueden ser varias. Distinguir texto original, síntesis y contenido adicional. Los subrayados enlazan la edición leída y las notas de origen sin presentar una síntesis como cita literal.
 
 ### 5. Publicación e instalación
 

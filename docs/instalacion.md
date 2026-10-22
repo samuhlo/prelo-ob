@@ -83,7 +83,7 @@ codex login status
 
 Después ejecuta el instalador con `--ai codex`. Prelo mantiene la autenticación de Codex en el Mac y usa su modo no interactivo para la edición y las imágenes. Requiere acceso a Codex, compatibilidad del CLI y cuota disponible; los errores de autenticación o límites se muestran como errores, sin cambiar a una clave API por su cuenta. [Autenticación](https://learn.chatgpt.com/docs/auth), [modo no interactivo](https://learn.chatgpt.com/docs/non-interactive-mode).
 
-Para proveedores compatibles, el servicio conserva `AI_BASE_URL`, `AI_MODEL` y `AI_API_KEY`; es una configuración avanzada del despliegue. Ese modo organiza texto y no ofrece la generación de imágenes de Revista 90's de esta versión.
+Para proveedores compatibles, el servicio conserva `AI_BASE_URL`, `AI_MODEL` y `AI_API_KEY`; es una configuración avanzada del despliegue. Ese modo organiza y adapta texto, añade apoyos de estudio y no ofrece la generación de imágenes de Revista 90's de esta versión.
 
 ## Actualizar
 

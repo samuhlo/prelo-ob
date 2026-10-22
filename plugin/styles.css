@@ -150,7 +150,7 @@
 .margen-style-cost { display:block; font-size:10px; line-height:1.5; color:var(--mg-accent-text); }
 .margen-editor-fields { display:flex; flex-direction:column; gap:18px; }
 .margen-field { display:flex; flex-direction:column; gap:8px; font-size:12px; font-weight:550; }
-.margen-field input,.margen-field textarea { width:100%; min-width:0; padding:12px; height:auto; font-weight:400; font-size:13px; border-radius:9px; }
+.margen-field input,.margen-field textarea,.margen-field select { width:100%; min-width:0; padding:12px; height:auto; font-weight:400; font-size:13px; border-radius:9px; }
 .margen-field textarea { resize:vertical; min-height:74px; }
 .margen-toggle-row { display:flex; align-items:center; gap:13px; padding:13px 0; border-top:1px solid var(--mg-line); cursor:pointer; }
 .margen-toggle-row strong,.margen-toggle-row small { display:block; }
@@ -257,3 +257,7 @@
   .margen-create-summary { flex-basis:100%; }
 }
 @media(prefers-reduced-motion:reduce) { .margen-progress-icon { animation:none; } .margen-book-card { transition:none; } }
+
+.margen-update-notice:empty { display:none; }
+.margen-update-notice { margin:12px 24px; padding:12px 16px; border:1px solid var(--background-modifier-border); border-radius:8px; background:var(--background-secondary); }
+.margen-update-notice p { margin:0 0 8px; }

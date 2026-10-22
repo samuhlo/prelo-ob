@@ -6,7 +6,7 @@ ROOT_FILES = {'.env.example', '.gitignore', 'AGENTS.md', 'README.md', 'CHANGELOG
 DOCS = {'producto.md', 'revista-90s.md', 'instalacion.md', 'desarrollo.md', 'privacidad.md', 'validacion-publica.md'}
 SCRIPTS = {'install.py', 'install_common.py', 'install_plugin.py', 'install_bridge.py', 'install_usb.py',
            'run_bridge.py', 'setup.py', 'publish_local.py', 'render_cover.mjs', 'restore_backup.py',
-           'validate_epub.py', 'check_caption_layout.py', 'public_files.py', 'build_release.py', 'audit_public.py'}
+           'set_version.py', 'validate_epub.py', 'check_caption_layout.py', 'public_files.py', 'build_release.py', 'audit_public.py'}
 IGNORED = {'.venv', 'node_modules', '__pycache__', '.pytest_cache', '.ruff_cache', 'data', 'dist', '.git'}
 
 

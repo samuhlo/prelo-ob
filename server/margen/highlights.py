@@ -25,7 +25,13 @@ def resolve(highlight: Highlight, publications: dict):
         if not source:
             method = "unresolved"
     key = hashlib.sha256((highlight.volume_id + "\0" + highlight.id).encode()).hexdigest()
+    content_note = ""
+    if publication and publication.get("writing_mode", "original") != "original":
+        content_note = "Subrayado de una adaptación con IA; puede no coincidir literalmente con la nota original."
+    elif publication and publication.get("study_aids", "none") != "none":
+        content_note = "Esta edición conserva las notas originales e incluye apoyos de estudio generados con IA."
     return {
+        "content_note": content_note,
         **highlight.model_dump(), "key": key, "match": method,
         "publication_id": publication["id"] if publication else None,
         "publication_title": publication["title"] if publication else highlight.title,

@@ -34,6 +34,7 @@ code { font-family:monospace; overflow-wrap:anywhere; }
 table { border-collapse:collapse; width:100%; font-size:0.85em; }
 td,th { border-bottom:1px solid #aaa; padding:0.4em; text-align:left; }
 a { color:inherit; } hr { border:0; border-top:1px solid #aaa; }
+.study-aids { border-top:2px solid #777; margin-top:2em; padding-top:1em; }
 body.study { font-family:sans-serif; line-height:1.6; }
 .study h2 { border-bottom:1px solid #94b4b4; padding-bottom:0.35em; }
 .study .eyebrow { color:#256c70; }
@@ -128,6 +129,7 @@ def build_epub(request: PublicationRequest, plan: EditorialPlan, edition_id: str
     filename = f"margen-{edition_id}.epub"
     warnings = []
     notes = {n.id: n for n in request.notes}
+    articles = {a.source_id: a for a in plan.articles}
     extensions = {"image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp"}
     assets = {a.id: a.id + "." + extensions[a.media_type] for a in request.assets}
     cover_art = next((v for v in illustrations if v["placement"] == "cover"), None)
@@ -153,7 +155,16 @@ def build_epub(request: PublicationRequest, plan: EditorialPlan, edition_id: str
         subitems = []
         for source_id in chapter.source_ids:
             note = notes[source_id]
-            body, plain = render_note(note, notes, assets, warnings)
+            article = articles.get(source_id)
+            reading_note = note.model_copy(update={"markdown": article.markdown}) if article and request.writing_mode != "original" else note
+            body, plain = render_note(reading_note, notes, assets, warnings)
+            if article and article.aids:
+                aid_note = note.model_copy(update={"id": note.id + "_aids", "markdown": article.aids})
+                aids_body, aids_plain = render_note(aid_note, notes, assets, warnings)
+                body += '<div class="study-aids"><h2>Apoyos de estudio · IA</h2>' + aids_body + '</div>'
+                plain += " " + aids_plain
+            if request.writing_mode != "original":
+                body = '<p class="article-meta">Texto adaptado con IA a partir de la nota original.</p>' + body
             relevant = [v for v in illustrations if v["placement"] == "inside" and v["source_ids"][0] == source_id]
             if relevant:
                 content = lhtml.fragment_fromstring(body or "<p/>", create_parent="div")
@@ -184,7 +195,7 @@ def build_epub(request: PublicationRequest, plan: EditorialPlan, edition_id: str
             source_map.append({
                 "id": note.id, "path": note.path, "title": note.title, "href": href,
                 "sha256": note.original_sha256 or hashlib.sha256(note.markdown.encode()).hexdigest(),
-                "text": plain, "chapter": chapter.title,
+                "text": plain, "chapter": chapter.title, "adapted": request.writing_mode != "original",
             })
         toc.append(f'<li><a href="n_{chapter.source_ids[0]}.xhtml">{html.escape(chapter.title)}</a>'
                    + "<ol>" + "".join(subitems) + "</ol></li>")
@@ -223,6 +234,8 @@ def build_epub(request: PublicationRequest, plan: EditorialPlan, edition_id: str
     return {
         "id": edition_id, "filename": filename, "created_at": now.isoformat(),
         "title": plan.title, "subtitle": plan.subtitle, "style": request.style,
+        "writing_mode": request.writing_mode, "study_aids": request.study_aids,
+        "preserve_order": request.preserve_order,
         "ai_used": request.use_ai or bool(illustrations), "plan": plan.model_dump(), "sources": source_map,
         "artwork": [{k: v.get(k) for k in ["id", "placement", "source_ids", "concept", "description", "caption", "anchor_heading", "cache_hit"]}
                     for v in illustrations],

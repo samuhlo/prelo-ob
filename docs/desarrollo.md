@@ -22,7 +22,7 @@ El empaquetador deja los archivos en `dist/releases/<versión>/`. Produce los tr
 
 ## Publicar una versión
 
-1. Actualiza los manifiestos, versiones de paquetes, `versions.json`, enlaces de descarga y CHANGELOG.
+1. Ejecuta `python3 scripts/set_version.py 0.8.0` (o la siguiente versión). Sincroniza manifiestos, paquetes, lockfiles, versión del servicio y `versions.json`. Actualiza CHANGELOG y, al publicar, los enlaces de descarga.
 2. Ejecuta las pruebas y revisa el resultado del empaquetado.
 3. Guarda los cambios y sube un tag como `0.7.0`.
 4. El workflow de release ejecuta las comprobaciones y adjunta los artefactos a una prerelease de GitHub.
@@ -37,3 +37,11 @@ Las pruebas usan directorios temporales, credenciales sintéticas y bases SQLite
 Para EPUBCheck usa `scripts/validate_epub.py --checker /ruta/a/epubcheck publicación.epub`. El validador crea un contenedor aislado y copia archivos con `docker cp`; no utiliza montajes del equipo. Las pruebas de USB físico y de arranque de los agentes deben registrarse por separado.
 
 El formato de datos y el identificador de plugin mantienen `margen` por compatibilidad. Un cambio visual o de nombre no debe convertirse en una migración de datos ni de identificadores.
+
+## Avisos de actualización
+
+Cada instalación del plugin consulta las releases públicas de GitHub al arrancar y cada seis horas. Incluye las prereleases porque Prelo se distribuye como beta; descarta borradores, tags no numéricos y versiones sin los tres assets del plugin. Compara major/minor/patch numéricamente. No basta con subir código o un tag: tiene que publicarse la release con sus archivos.
+
+El aviso aparece en Prelo y en Ajustes, con enlace a la release. Hay un comando «Comprobar actualizaciones» y un ajuste para desactivar las consultas automáticas. La consulta no usa la credencial del servidor ni transmite contenido del vault. Los errores de conexión no bloquean el plugin.
+
+La instalación sigue a cargo de BRAT o del ZIP del plugin en cada equipo. El paquete macOS actualiza el servicio y sus conectores en el Mac. El plugin compara su versión con la que anuncia el servidor y avisa si difieren. El aviso es informativo: no instala ni reinicia servicios automáticamente. Las instalaciones anteriores a 0.8.0 necesitan una primera actualización por el mecanismo anterior para recibir estos avisos.

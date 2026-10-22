@@ -182,6 +182,7 @@ def retro_fixture():
         chapters=[{"title": "Fundamentos", "source_ids": ["a", "b"]}],
         visuals=[
             {"id": "cover", "placement": "cover", "source_ids": ["a", "b"], "concept": "De la imagen al contenedor", "description": "Plantilla y varias instancias", "caption": ""},
+            {"id": "networks", "placement": "inside", "source_ids": ["b"], "concept": "Redes", "description": "Conexiones entre contenedores.", "caption": "Redes entre contenedores."},
             {"id": "instances", "placement": "inside", "source_ids": ["a"], "concept": "Varias instancias", "description": "Una plantilla produce varias instancias.", "caption": "Una imagen permite crear varios contenedores."},
         ])
     return request, plan, base64.b64encode(stream.getvalue()).decode()
@@ -200,9 +201,9 @@ def test_content_specific_artwork_and_cache(client, tmp_path, monkeypatch):
     monkeypatch.setattr(art, "codex_artwork", fake)
     first = generate_visuals(request, plan, tmp_path / "cache")
     second = generate_visuals(request, plan, tmp_path / "cache")
-    assert len(calls) == 2 and all(v["cache_hit"] for v in second)
-    assert calls[1].sources[0].id == "a"
-    assert "Una imagen es una plantilla" in first[1]["prompt"]
+    assert len(calls) == 3 and all(v["cache_hit"] for v in second)
+    assert calls[2].sources[0].id == "a"
+    assert "Una imagen es una plantilla" in first[2]["prompt"]
     edition = str(uuid.uuid4())
     folder = tmp_path / edition
     record = build_epub(request, plan, edition, folder, first)
@@ -215,8 +216,8 @@ def test_content_specific_artwork_and_cache(client, tmp_path, monkeypatch):
         assert article.xpath("count(//*[local-name()='figcaption'])") == 0
         assert "Una imagen es una plantilla" in "".join(article.itertext())
         assert "EPUB/art/instances.jpg" in book.namelist()
-        assert b'class="illustration"' not in book.read("EPUB/text/n_b.xhtml")
-    assert record["artwork"][1]["source_ids"] == ["a"]
+        assert b'class="illustration"' in book.read("EPUB/text/n_b.xhtml")
+    assert record["artwork"][2]["source_ids"] == ["a"]
     endpoint = f"/v1/publications/{edition}/artwork/instances"
     assert client.get(endpoint).status_code == 401
     image = client.get(endpoint, headers=AUTH)
@@ -246,3 +247,42 @@ def test_disabled_ai_stays_disabled_with_saved_provider_settings(monkeypatch):
     monkeypatch.setenv('AI_BASE_URL', 'https://provider.example.test/v1')
     monkeypatch.setenv('AI_MODEL', 'synthetic-model')
     assert ai_available() is False
+
+
+@pytest.mark.parametrize("problem", ["missing_note", "shared_image", "duplicate_cover", "no_cover"])
+def test_retro_requires_cover_and_an_asset_placed_in_every_note(problem):
+    request, plan, _ = retro_fixture()
+    if problem == "missing_note":
+        plan.visuals.pop(1)
+    elif problem == "shared_image":
+        plan.visuals.pop(1)
+        plan.visuals[1].source_ids = ["a", "b"]
+    elif problem == "duplicate_cover":
+        plan.visuals.append(plan.visuals[0].model_copy(update={"id": "cover2"}))
+    else:
+        plan.visuals.pop(0)
+    with pytest.raises(ValueError):
+        plan.verify_visuals(request)
+
+
+def test_retro_supports_more_than_two_notes_and_uses_box_art_framing():
+    from margen.artwork import ArtworkRequest, image_prompt
+    request, plan, _ = retro_fixture()
+    for index in range(3):
+        source = request.notes[0].model_copy(update={"id": f"extra{index}"})
+        request.notes.append(source)
+        plan.chapters[0].source_ids.append(source.id)
+        plan.visuals.append(plan.visuals[-1].model_copy(update={"id": source.id, "source_ids": [source.id]}))
+    plan = EditorialPlan.model_validate(plan.model_dump()).verify_visuals(request)
+    assert len(plan.visuals) == len(request.notes) + 1
+    prompt = image_prompt(ArtworkRequest(title=plan.title, visual=plan.visuals[1], sources=[request.notes[1]]))
+    assert "Portrait 3:4" in prompt and "box-cover" in prompt
+
+
+def test_service_version_matches_release_metadata(client):
+    from margen import __version__
+    from pathlib import Path
+    manifest = json.loads((Path(__file__).resolve().parents[2] / "manifest.json").read_text())
+    assert app.version == __version__ == manifest["version"]
+    assert client.get("/health").json()["version"] == __version__
+    assert client.get("/v1/library", headers=AUTH).json()["version"] == __version__

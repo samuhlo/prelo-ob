@@ -117,6 +117,8 @@ def highlight_block(highlight, source):
         lines += [f"Origen: [[{source.removesuffix('.md')}]]", ""]
     elif highlight["match"] == "unresolved" or highlight.get("source"):
         lines += ["*Origen pendiente de vincular.*", ""]
+    if highlight.get("content_note"):
+        lines += [highlight["content_note"], ""]
     if highlight.get("publication_id"):
         lines += [f'Edición: {highlight["publication_title"]} · {highlight["publication_id"]}', ""]
     if highlight["created_at"]:

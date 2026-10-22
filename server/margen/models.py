@@ -35,11 +35,18 @@ class Asset(BaseModel):
         return self
 
 
+WritingMode = Literal["original", "narrative", "simple", "step_by_step", "review"]
+StudyAids = Literal["none", "visual", "practice", "complete"]
+
+
 class PublicationRequest(BaseModel):
     title: str = Field(default="", max_length=160)
     intent: str = Field(default="", max_length=2000)
+    preserve_order: bool = False
     style: Literal["editorial", "retro90", "study"] = "study"
     artwork: Literal["none", "generated"] = "none"
+    writing_mode: WritingMode = "original"
+    study_aids: StudyAids = "none"
     use_ai: bool = False
     send_to_kobo: bool = False
     notes: list[Source] = Field(min_length=1, max_length=100)
@@ -47,6 +54,8 @@ class PublicationRequest(BaseModel):
 
     @model_validator(mode="after")
     def unique_ids_and_size(self):
+        if self.intent.strip() or self.writing_mode != "original" or self.study_aids != "none":
+            self.use_ai = True
         if self.style == "editorial":
             self.style = "study"
         if self.style == "study" and self.artwork != "none":
@@ -76,11 +85,19 @@ class VisualBrief(BaseModel):
     anchor_heading: str = Field(default="", max_length=200)
 
 
+class EditedArticle(BaseModel):
+    source_id: str
+    markdown: str = Field(max_length=200_000)
+    aids: str = Field(max_length=40_000)
+
+
 class EditorialPlan(BaseModel):
     title: str = Field(min_length=1, max_length=160)
     subtitle: str = Field(max_length=240)
     chapters: list[Chapter] = Field(min_length=1, max_length=100)
-    visuals: list[VisualBrief] = Field(default_factory=list, max_length=3)
+    visuals: list[VisualBrief] = Field(default_factory=list, max_length=201)
+
+    articles: list[EditedArticle] = Field(default_factory=list, max_length=100)
 
     def verify_sources(self, notes: list[Source]):
         ids = [i for c in self.chapters for i in c.source_ids]
@@ -95,9 +112,32 @@ class EditorialPlan(BaseModel):
 
     def verify_visuals(self, request: PublicationRequest):
         self.verify_sources(request.notes)
+        if request.preserve_order and [i for c in self.chapters for i in c.source_ids] != [n.id for n in request.notes]:
+            raise ValueError("La propuesta no respeta el orden de tu selección. Reintenta la edición.")
+        needs_articles = request.writing_mode != "original" or request.study_aids != "none"
+        ids = [a.source_id for a in self.articles]
+        if needs_articles:
+            if len(ids) != len(set(ids)) or set(ids) != {n.id for n in request.notes}:
+                raise ValueError("La redacción debe incluir todas las notas exactamente una vez.")
+            for article in self.articles:
+                if request.writing_mode == "original" and article.markdown:
+                    raise ValueError("El modo original no permite reescribir notas.")
+                if request.writing_mode != "original" and not article.markdown.strip():
+                    raise ValueError("Falta el texto adaptado de una nota.")
+                if request.study_aids != "none" and not article.aids.strip():
+                    raise ValueError("Faltan los apoyos de estudio de una nota.")
+                if request.study_aids == "none" and article.aids:
+                    raise ValueError("No se solicitaron apoyos de estudio.")
+            if sum(len(a.markdown) + len(a.aids) for a in self.articles) > 800_000:
+                raise ValueError("La redacción supera el tamaño máximo de una edición.")
+        elif self.articles:
+            raise ValueError("No se solicitó una adaptación del contenido.")
         if request.style == "retro90" and request.artwork == "generated":
-            if sum(v.placement == "cover" for v in self.visuals) != 1 or not any(v.placement == "inside" for v in self.visuals):
-                raise ValueError("La revista necesita una portada temática y al menos una ilustración interior.")
+            if sum(v.placement == "cover" for v in self.visuals) != 1:
+                raise ValueError("La revista necesita exactamente una portada temática.")
+            illustrated = {v.source_ids[0] for v in self.visuals if v.placement == "inside"}
+            if illustrated != {n.id for n in request.notes}:
+                raise ValueError("Cada nota necesita al menos una carátula retro propia.")
         elif self.visuals:
             raise ValueError("Se propusieron ilustraciones para una edición sin generación visual.")
         return self

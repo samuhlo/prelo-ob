@@ -46,9 +46,13 @@ def image_prompt(request: ArtworkRequest):
         "the upper fifth and lower fifth quiet for typography added later. Fill the canvas "
         "with a coherent painted scene rather than an object floating on blank ivory."
         if request.visual.placement == "cover" else
-        "Wide landscape 3:2 chapter illustration, one clear visual explanation or comparison. "
-        "Use a light paper background, distinct red/green/turquoise accents and breathing "
-        "room around the main subjects, like an illustrated tips-and-tricks feature."
+        "Portrait 3:4 original retro videogame box-cover artwork for this specific note. "
+        "A bold central scene, expressive action and painted depth like a 1990s console "
+        "game cover. Turn the note's central concept into the visual theme, with clear "
+        "relationships that help explain it. Fill the canvas with the illustration, "
+        "not a photograph or mockup of a physical box. Use distinct red/green/turquoise "
+        "accents and strong silhouettes. No title or lettering; the note title is laid "
+        "out separately. Do not reuse a generic scene for different notes."
     )
     return (
         ART_DIRECTION + "\n" + framing + "\n"

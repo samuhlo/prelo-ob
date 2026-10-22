@@ -1,0 +1,160 @@
+"""Editorial settings must reach the EPUB without changing original provenance."""
+import hashlib
+import json
+import zipfile
+
+import httpx
+import pytest
+from fastapi.testclient import TestClient
+from lxml import etree
+
+from margen.app import app
+from margen.editor import plan_publication
+from margen.epub import build_epub
+from margen.highlights import resolve
+from margen.models import EditorialPlan, Highlight, PublicationRequest
+
+NOTES = [
+    {"id": "a", "title": "Primero", "path": "Primero.md", "markdown": "Texto original A."},
+    {"id": "b", "title": "Segundo", "path": "Segundo.md", "markdown": "Texto original B."},
+]
+EDITION = "12345678-1234-1234-1234-123456789abc"
+
+
+def plan_for(mode, aids):
+    return EditorialPlan(title="Lectura", subtitle="", chapters=[{"title": "Tema", "source_ids": ["a", "b"]}],
+        articles=[{"source_id": n["id"],
+                   "markdown": f"Explicación {n['id']}. [Otra nota](margen-note:b)" if mode != "original" else "",
+                   "aids": "## Esquema\n\n- Idea\n  - Detalle\n\n| Concepto | Explicación |\n|---|---|\n| A | B |" if aids != "none" else ""}
+                  for n in NOTES] if mode != "original" or aids != "none" else [])
+
+
+@pytest.mark.parametrize("mode", ["original", "narrative", "simple", "step_by_step", "review"])
+@pytest.mark.parametrize("aids", ["none", "visual", "practice", "complete"])
+def test_modes_render_complete_valid_epubs_and_keep_provenance(tmp_path, mode, aids):
+    request = PublicationRequest(notes=NOTES, writing_mode=mode, study_aids=aids)
+    record = build_epub(request, plan_for(mode, aids), EDITION, tmp_path)
+    assert request.use_ai == (mode != "original" or aids != "none")
+    assert record["writing_mode"] == mode and record["study_aids"] == aids
+    assert request.notes[0].markdown == NOTES[0]["markdown"]
+    assert record["sources"][0]["sha256"] == hashlib.sha256(NOTES[0]["markdown"].encode()).hexdigest()
+    with zipfile.ZipFile(tmp_path / record["filename"]) as book:
+        for name in book.namelist():
+            if name.endswith((".xhtml", ".opf", ".xml", ".svg")):
+                etree.fromstring(book.read(name))
+        content = book.read("EPUB/text/n_a.xhtml").decode()
+        assert ("Texto original A." in content) == (mode == "original")
+        assert ("Texto adaptado con IA" in content) == (mode != "original")
+        assert ("<table>" in content) == (aids != "none")
+        tree = etree.fromstring(content.encode())
+        ids = tree.xpath("//@id")
+        assert len(ids) == len(set(ids))
+        if mode != "original":
+            assert 'href="n_b.xhtml"' in content
+    quote = "Explicación a." if mode != "original" else "Texto original A."
+    highlight = resolve(Highlight(id="one", volume_id=record["filename"], text=quote), {EDITION: record})
+    assert highlight["source"]["path"] == "Primero.md"
+    assert highlight["match"] == "exact_text"
+    assert bool(highlight["content_note"]) == (mode != "original" or aids != "none")
+
+
+@pytest.mark.parametrize("invalid", ["missing", "duplicate", "unknown", "empty_body", "empty_aids"])
+def test_incomplete_adaptation_is_rejected(tmp_path, invalid):
+    request = PublicationRequest(notes=NOTES, writing_mode="simple", study_aids="complete")
+    plan = plan_for("simple", "complete")
+    if invalid == "missing": plan.articles.pop()
+    if invalid == "duplicate": plan.articles.append(plan.articles[0])
+    if invalid == "unknown": plan.articles[0].source_id = "unknown"
+    if invalid == "empty_body": plan.articles[0].markdown = " "
+    if invalid == "empty_aids": plan.articles[0].aids = " "
+    with pytest.raises(ValueError):
+        build_epub(request, plan, EDITION, tmp_path)
+    assert not list(tmp_path.glob("*.epub"))
+
+
+def test_original_cannot_be_silently_rewritten():
+    request = PublicationRequest(notes=NOTES, study_aids="visual")
+    with pytest.raises(ValueError, match="original"):
+        plan_for("simple", "visual").verify_visuals(request)
+
+
+@pytest.mark.parametrize("provider", ["http", "codex-cli", "codex-bridge"])
+def test_settings_reach_every_provider(monkeypatch, provider):
+    request = PublicationRequest(notes=NOTES, writing_mode="narrative", study_aids="complete",
+                                 intent="Cada tema seguido de su examen resuelto.", preserve_order=True)
+    expected = plan_for("narrative", "complete")
+    monkeypatch.setattr("margen.editor.ai_available", lambda: True)
+    monkeypatch.setenv("AI_PROVIDER", provider)
+    monkeypatch.setenv("AI_BASE_URL", "http://fixture/v1")
+    monkeypatch.setenv("CODEX_BRIDGE_URL", "http://fixture")
+    monkeypatch.setenv("MARGEN_TOKEN", "fixture")
+    monkeypatch.setenv("AI_MODEL", "fixture")
+    def codex(request, schema, instructions):
+        assert request.writing_mode == "narrative" and request.study_aids == "complete"
+        assert request.intent == "Cada tema seguido de su examen resuelto." and request.preserve_order
+        assert "articles" in schema["required"]
+        assert "writing_mode" in instructions
+        return expected.verify_visuals(request)
+    def post(self, url, **kwargs):
+        payload = kwargs["json"]
+        if provider == "http":
+            payload = json.loads(payload["messages"][1]["content"])
+        assert payload["writing_mode"] == "narrative" and payload["study_aids"] == "complete"
+        assert payload["intent"] == request.intent and payload["preserve_order"] is True
+        answer = expected.model_dump() if provider == "codex-bridge" else {
+            "choices": [{"finish_reason": "stop", "message": {"content": expected.model_dump_json()}}]}
+        return httpx.Response(200, request=httpx.Request("POST", url), json=answer)
+    monkeypatch.setattr("margen.codex_editor.codex_plan", codex)
+    monkeypatch.setattr(httpx.Client, "post", post)
+    assert plan_publication(request) == expected
+
+
+def test_drafts_round_trip_editorial_settings_and_old_defaults(tmp_path, monkeypatch):
+    token = "x" * 40
+    monkeypatch.setenv("MARGEN_DATA", str(tmp_path))
+    monkeypatch.setenv("MARGEN_TOKEN", token)
+    client = TestClient(app)
+    headers = {"Authorization": "Bearer " + token}
+    payload = {"id": EDITION, "paths": ["Primero.md"], "writing_mode": "simple",
+               "study_aids": "complete", "use_ai": True, "send_to_kobo": False,
+               "intent": "Tema y después examen.", "preserve_order": True}
+    assert client.post("/v1/drafts", headers=headers, json=payload).status_code == 200
+    draft = client.get("/v1/drafts", headers=headers).json()[0]
+    for key, value in payload.items():
+        assert draft[key] == value
+    assert client.post("/v1/drafts", headers=headers, json={"id": EDITION, "paths": ["Primero.md"]}).status_code == 200
+    draft = client.get("/v1/drafts", headers=headers).json()[0]
+    assert draft["writing_mode"] == "original" and draft["study_aids"] == "none"
+
+
+def test_rewriting_requires_provider_even_if_use_ai_was_false(monkeypatch):
+    monkeypatch.setenv("AI_PROVIDER", "disabled")
+    with pytest.raises(ValueError, match="proveedor"):
+        plan_publication(PublicationRequest(notes=NOTES, writing_mode="simple", use_ai=False))
+
+
+@pytest.mark.parametrize("intent, expected_ai", [("Tema y después examen.", True), ("  ", False), ("", False)])
+def test_extra_instructions_are_not_ignored_without_ai_toggle(monkeypatch, intent, expected_ai):
+    request = PublicationRequest(notes=NOTES, intent=intent, use_ai=False)
+    assert request.use_ai is expected_ai
+    monkeypatch.setenv("AI_PROVIDER", "disabled")
+    if expected_ai:
+        with pytest.raises(ValueError, match="proveedor"):
+            plan_publication(request)
+    else:
+        assert plan_publication(request).chapters[0].source_ids == ["a"]
+
+
+def test_locked_order_rejects_reordering_and_keeps_epub_spine(tmp_path):
+    request = PublicationRequest(notes=NOTES, preserve_order=True)
+    plan = plan_for("original", "none")
+    plan.chapters[0].source_ids.reverse()
+    with pytest.raises(ValueError, match="orden"):
+        build_epub(request, plan, EDITION, tmp_path)
+    assert not list(tmp_path.glob("*.epub"))
+    plan.chapters[0].source_ids.reverse()
+    record = build_epub(request, plan, EDITION, tmp_path)
+    with zipfile.ZipFile(tmp_path / record["filename"]) as book:
+        package = etree.fromstring(book.read("EPUB/package.opf"))
+        assert package.xpath("//*[local-name()='spine']/*/@idref") == ["cover", "nav", "n_a", "n_b"]
+    assert record["preserve_order"] is True

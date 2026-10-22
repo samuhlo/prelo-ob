@@ -7,12 +7,14 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { openKoboDatabase } from "./sqlite";
 import { appendHighlight, hash, readHighlights, ResolvedHighlight, highlightFilename, modernizeHighlightDates, safeRelative } from "./core";
+import { writingModes, studyAids, WritingMode, StudyAids } from "./editorial";
 import { Composer, emptyComposer, MARGEN_ICON, STUDIO_TYPE, StudioTab, StudioView } from "./studio";
 import { addPaths, renamePaths } from "./selection";
+import { findUpdate, RELEASES_API, RELEASES_URL, ReleaseUpdate, UPDATE_INTERVAL } from "./updates";
 
 type Settings = {
   serverUrl: string; token: string; koboPath: string; outputFolder: string;
-  highlightsFolder: string; frontmatter: string;
+  highlightsFolder: string; frontmatter: string; checkUpdates: boolean;
 };
 type ImportReceipt = { completedAt: string; examined: number; added: number; unresolved: number };
 type State = { settings: Settings; sources: Record<string, string>; importNotes: Record<string, string>; lastImport?: ImportReceipt;
@@ -23,7 +25,7 @@ type State = { settings: Settings; sources: Record<string, string>; importNotes:
 export type Publication = {
   id: string; title: string; subtitle: string; filename: string;
   created_at: string; warnings: string[]; ai_used: boolean;
-  style?: string;
+  style?: string; writing_mode?: WritingMode; study_aids?: StudyAids;
   available?: boolean; pinned?: boolean; delivery?: string; bytes?: number;
 };
 type PublicationDetail = Publication & {
@@ -33,9 +35,9 @@ type PublicationDetail = Publication & {
 };
 type Source = { id: string; path: string; title: string; markdown: string; original_sha256: string };
 type Asset = { id: string; media_type: string; data: string };
-export type Draft = { id: string; title: string; intent: string; style: string; paths: string[] };
+export type Draft = { id: string; title: string; intent: string; preserve_order?: boolean; style: string; paths: string[]; writing_mode?: WritingMode; study_aids?: StudyAids; use_ai?: boolean; send_to_kobo?: boolean };
 const DEFAULTS: Settings = {
-  serverUrl: "http://127.0.0.1:8765", token: "", koboPath: "/Volumes/KOBOeReader",
+  checkUpdates: true, serverUrl: "http://127.0.0.1:8765", token: "", koboPath: "/Volumes/KOBOeReader",
   outputFolder: "Prelo/Publicaciones", highlightsFolder: "Prelo/Subrayados",
   frontmatter: "tipo: fuente_externa\nzona: cerebro\narea: media_consumo\nformato: subrayados\ntags: []\nrelacionadas: []",
 };
@@ -43,6 +45,13 @@ const DEFAULTS: Settings = {
 export default class Prelo extends Plugin {
   state!: State;
   busy = false;
+  update?: ReleaseUpdate;
+  serverVersion?: string;
+  updateMessage = "Aún no se han comprobado las versiones.";
+  private checkingUpdates = false;
+  private lastUpdateCheck = 0;
+  private notifiedVersion = "";
+  private unloaded = false;
   lastNote?: TFile;
   private ribbon?: HTMLElement;
   private modals = new Set<Modal>();
@@ -58,6 +67,13 @@ export default class Prelo extends Plugin {
     addIcon(MARGEN_ICON, '<path d="M49 23C37 15 23 15 10 18v63c14-4 26-2 39 5 13-7 26-9 41-5V18c-14-3-27-3-41 5Z" fill="none" stroke="currentColor" stroke-width="6" stroke-linejoin="round"/><path d="M49 24v60M22 31h15M22 42h15M22 54h15M62 56h15M62 68h15" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><rect x="60" y="29" width="20" height="17" rx="3" fill="currentColor"/>');
     this.registerView(STUDIO_TYPE, leaf => new StudioView(leaf, this));
     this.addSettingTab(new PreloSettings(this.app, this));
+    this.addCommand({ id: "check-updates", name: "Comprobar actualizaciones", callback: () => void this.checkForUpdates(true) });
+    this.registerInterval(window.setInterval(() => {
+      if (this.state.settings.checkUpdates) void this.checkForUpdates();
+    }, UPDATE_INTERVAL));
+    this.app.workspace.onLayoutReady(() => {
+      if (!this.unloaded && this.state.settings.checkUpdates) void this.checkForUpdates();
+    });
     this.ribbon = this.addRibbonIcon(MARGEN_ICON, "Prelo", () => void this.openStudio());
     this.ribbon.addClass("margen-ribbon");
     this.updateRibbon();
@@ -118,6 +134,7 @@ export default class Prelo extends Plugin {
       }
     });
     this.register(() => {
+      this.unloaded = true;
       for (const modal of this.modals) modal.close();
       this.modals.clear();
       for (const leaf of this.app.workspace.getLeavesOfType("markdown"))
@@ -182,7 +199,7 @@ export default class Prelo extends Plugin {
   undoComposer() {
     if (this.busy || !this.state.previousComposer) return;
     const previous = this.state.composer;
-    this.state.composer = this.state.previousComposer;
+    this.state.composer = { ...emptyComposer(), ...this.state.previousComposer };
     this.state.previousComposer = previous;
     void this.save(); this.notifySelection();
   }
@@ -232,6 +249,33 @@ export default class Prelo extends Plugin {
     modal.onClose = () => { this.modals.delete(modal); onClose(); };
     modal.open();
   }
+  async checkForUpdates(manual = false) {
+    if (this.checkingUpdates || this.unloaded || !manual && Date.now() - this.lastUpdateCheck < UPDATE_INTERVAL) return;
+    this.checkingUpdates = true;
+    this.lastUpdateCheck = Date.now();
+    try {
+      // Public request: never attach the private server credential or vault data.
+      const response = await requestUrl({ url: RELEASES_API, headers: { Accept: "application/vnd.github+json" }, throw: false });
+      if (response.status !== 200) throw new Error("No se pudo consultar GitHub. Comprueba la conexión o inténtalo más tarde.");
+      const update = findUpdate(response.json, this.manifest.version);
+      if (this.unloaded) return;
+      this.update = update;
+      this.updateMessage = update ? `Disponible Prelo ${update.version}${update.beta ? " (beta)" : ""}.` : `No hay una versión publicada más reciente que ${this.manifest.version}.`;
+      if (manual || update && this.notifiedVersion !== update.version) {
+        new Notice(this.updateMessage + (update ? " Abre Prelo o sus ajustes para ver la actualización." : ""), 10000);
+        if (update) this.notifiedVersion = update.version;
+      }
+    } catch (error) {
+      if (this.unloaded) return;
+      this.updateMessage = "No se pudieron comprobar las actualizaciones. Inténtalo más tarde.";
+      if (manual) new Notice(this.updateMessage);
+    } finally {
+      this.checkingUpdates = false;
+      if (!this.unloaded) for (const leaf of this.app.workspace.getLeavesOfType(STUDIO_TYPE))
+        if (leaf.view instanceof StudioView) leaf.view.updateVersionNotice();
+    }
+  }
+  openUpdates() { window.open(this.update?.url ?? RELEASES_URL); }
   preview(publication: Publication) { this.showModal(new PreviewModal(this, publication)); }
   save() {
     const snapshot = JSON.parse(JSON.stringify(this.state));
@@ -532,7 +576,7 @@ class PreviewModal extends Modal {
     const artwork = grid.createDiv("margen-preview-art");
     const info = grid.createDiv();
     info.createEl("p", { text: this.publication.subtitle, cls: "margen-intro" });
-    info.createEl("small", { text: `${this.publication.created_at.slice(0, 10)} · ${this.publication.ai_used ? "Organizada con IA" : "Orden de selección"} · textos íntegros`, cls: "margen-status" });
+    info.createEl("small", { text: `${this.publication.created_at.slice(0, 10)} · ${writingModes[this.publication.writing_mode ?? "original"].label} · ${studyAids[this.publication.study_aids ?? "none"].label}`, cls: "margen-status" });
     const chapters = info.createEl("ol", { cls: "margen-chapters" });
     void Promise.all([
       this.plugin.api(`/v1/publications/${this.publication.id}`),
@@ -593,10 +637,31 @@ class PreloSettings extends PluginSettingTab {
     container.empty();
     container.addClass("margen-settings");
     container.createEl("h2", { text: "Prelo" });
+    container.createEl("h3", { text: "Versiones y actualizaciones" });
+    const versions = container.createEl("p");
+    const refreshVersions = () => versions.setText(`Plugin en este equipo: ${this.plugin.manifest.version} · Servidor: ${this.plugin.serverVersion ?? "sin comprobar"}. ${this.plugin.updateMessage}`);
+    refreshVersions();
+    new Setting(container).setName("Buscar nuevas versiones automáticamente")
+      .setDesc("Consulta las releases públicas de GitHub al iniciar y cada seis horas, incluidas las betas. No envía notas ni credenciales.")
+      .addToggle(t => t.setValue(this.plugin.state.settings.checkUpdates).onChange(async value => {
+        this.plugin.state.settings.checkUpdates = value; await this.plugin.save();
+        if (value) { await this.plugin.checkForUpdates(true); refreshVersions(); }
+      }));
+    new Setting(container).setName("Actualizar Prelo")
+      .setDesc("Actualiza el plugin en cada equipo mediante BRAT o el ZIP del plugin. Actualiza también el servicio y los conectores en el Mac con el paquete para macOS; la biblioteca compartida no actualiza los plugins.")
+      .addButton(b => b.setButtonText("Comprobar versiones").onClick(async () => {
+        b.setDisabled(true);
+        try {
+          await this.plugin.checkForUpdates(true);
+          try { this.plugin.serverVersion = (await this.plugin.api("/health")).json.version; } catch { this.plugin.serverVersion = undefined; }
+          refreshVersions();
+        } finally { b.setDisabled(false); }
+      }))
+      .addButton(b => b.setButtonText("Ver versión y descargas").onClick(() => this.plugin.openUpdates()));
     new Setting(container).setName("Conexión con el servidor")
       .setDesc("Importa conexion-prelo.json, incluido en el paquete privado del panel.")
       .addButton(b => b.setButtonText("Importar conexión").onClick(() => this.plugin.showModal(new ConnectionModal(this.plugin))));
-    const fields: [keyof Settings, string, string][] = [
+    const fields: [Exclude<keyof Settings, "checkUpdates">, string, string][] = [
       ["serverUrl", "Servicio", "Dirección del servicio en tu Mac mini o servidor."],
       ["token", "Credencial del servicio", "Acceso privado incluido en el archivo de conexión. La clave del proveedor de IA se configura solo en el servidor."],
       ["outputFolder", "Exportaciones manuales", "Carpeta del vault al pulsar Guardar EPUB. La biblioteca permanece en el Mac."],

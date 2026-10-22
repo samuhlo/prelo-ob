@@ -193,3 +193,44 @@ def test_private_installation_package_works_with_three_file_plugin(environment, 
         assert connection['token'] == TOKEN
         assert connection['serverUrl'] == 'https://reader.example.test'
         assert connection['highlightsFolder'] == 'Prelo/Subrayados'
+
+
+@pytest.mark.parametrize("queued,pinned", [(False, False), (True, False), (False, True)])
+def test_delete_epub_retires_files_and_queue_but_preserves_annotations(environment, queued, pinned):
+    client, root = environment
+    record = publish(client, queued=queued)
+    other = publish(client, title="Otra edición")
+    endpoint = f"/v1/publications/{record['id']}/action"
+    if pinned:
+        assert client.post(endpoint, headers=AUTH, json={"action": "pin"}).status_code == 200
+    assert client.post(endpoint, json={"action": "delete"}).status_code == 401
+    assert (root / record["id"] / record["filename"]).exists()
+    highlight = {"id": "saved", "volume_id": record["filename"], "text": "Una imagen es una plantilla."}
+    assert client.post("/v1/annotations", headers=AUTH, json={"highlights": [highlight]}).status_code == 200
+    for _ in range(2):  # Repeated deletion is harmless.
+        result = client.post(endpoint, headers=AUTH, json={"action": "delete"})
+        assert result.status_code == 200, result.text
+        deleted = result.json()
+        assert not deleted["available"] and not deleted["pinned"]
+        assert deleted["delivery"] == "none" and deleted["archived_at"]
+    assert not (root / record["id"] / record["filename"]).exists()
+    assert not (root / record["id"] / "cover.svg").exists()
+    assert (root / record["id"] / "manifest.json").exists()
+    assert (root / other["id"] / other["filename"]).exists()
+    assert client.get(f"/v1/publications/{record['id']}/epub", headers=AUTH).status_code == 410
+    assert not client.get("/v1/deliveries", headers=AUTH).json()
+    assert client.post(endpoint, headers=AUTH, json={"action": "queue"}).status_code == 422
+    resolved = client.post("/v1/highlights/resolve", headers=AUTH, json={"highlights": [highlight]}).json()["highlights"][0]
+    assert resolved["source"]["id"] == NOTE["id"]
+    with library.database(root) as db:
+        assert db.execute("SELECT count(*) FROM annotations").fetchone()[0] == 1
+
+
+def test_delete_cannot_interrupt_active_usb_transfer(environment):
+    client, root = environment
+    record = publish(client, queued=True)
+    assert client.post(f"/v1/deliveries/{record['id']}/claim", headers=AUTH, json={"device": "kobo"}).status_code == 200
+    result = client.post(f"/v1/publications/{record['id']}/action", headers=AUTH, json={"action": "delete"})
+    assert result.status_code == 422
+    assert (root / record["id"] / record["filename"]).exists()
+    assert client.get("/v1/deliveries", headers=AUTH).json()[0]["delivery"] == "transferring"

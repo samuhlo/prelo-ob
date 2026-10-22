@@ -1,5 +1,14 @@
 # Cambios
 
+## 0.8.0 — Redacción, estudio y actualizaciones
+
+- Modos de redacción, apoyos de estudio e instrucciones extra con bloqueo del orden.
+- Carátula de juego retro por nota en Revista 90’s.
+- Eliminación manual del EPUB conservando subrayados y procedencia.
+- Avisos de versiones publicadas, comprobación manual y detección de diferencias entre plugin y servidor.
+- Preparación de versiones coherentes con `scripts/set_version.py`.
+
+
 ## 0.7.0 — Primera beta pública
 
 - Distribución pública en `samuhlo/prelo-ob`, con licencia MIT, manifiesto de Obsidian y paquetes compilados.

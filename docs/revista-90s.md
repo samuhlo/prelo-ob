@@ -14,16 +14,16 @@ Se usan esas observaciones como dirección de diseño. No se incorporan a las pu
 ## Recorrido de una edición
 
 1. La IA recibe las notas seleccionadas y propone el orden de lectura.
-2. Elige una idea común para la portada y uno o dos conceptos concretos que conviene visualizar dentro.
+2. Elige una idea común para la portada y el concepto central de cada nota para su propia carátula retro.
 3. Cada encargo visual incluye el concepto, descripción de la escena, notas de origen, pie de imagen y encabezado de destino.
 4. El puente local solicita una imagen original por encargo con la herramienta integrada de generación de Codex.
 5. El servicio coloca las imágenes junto al contenido correspondiente. Los títulos, pies y párrafos se maquetan como texto.
 
-El validador rechaza referencias a notas ajenas a la selección y exige una portada y al menos una ilustración interior para el modo generado. El límite actual es una portada y dos interiores.
+El validador rechaza referencias a notas ajenas a la selección y exige exactamente una portada general y al menos una ilustración interior por nota. Una imagen que menciona varias notas solo cuenta para la primera, que es donde se coloca. La generación solicita una carátula por nota: con N notas se generan N + 1 imágenes, incluida la portada.
 
 ## Dirección base del prompt
 
-Ilustración de revista de club de consolas y manual de juego de 1994: contornos dibujados, sombreado de animación, aerógrafo suave y formas expresivas. Turquesa, azul profundo, rojo, verde, amarillo y toques morados. Se prefieren escenas o comparaciones vivas a un esquema isométrico genérico. Escenas originales sin texto incrustado, marcas, personajes de franquicias ni adornos ajenos al tema.
+Carátula original vertical (3:4) de juego de consola de los 90 para cada nota e ilustración de revista de club de consolas de 1994 para la portada general: contornos dibujados, sombreado de animación, aerógrafo suave y formas expresivas. Turquesa, azul profundo, rojo, verde, amarillo y toques morados. Se prefieren escenas o comparaciones vivas a un esquema isométrico genérico. Escenas originales sin texto incrustado, marcas, personajes de franquicias ni adornos ajenos al tema.
 
 Sobre esa dirección se añade el encargo específico y el material de origen. El prompt efectivo se construye en `server/margen/artwork.py`; las descripciones y leyendas de cada edición se guardan en su manifiesto.
 
@@ -49,7 +49,7 @@ Si el servicio reinicia durante un trabajo, este queda marcado como interrumpido
 
 ## Límites
 
-Las imágenes son ayudas visuales generadas y pueden requerir revisión, especialmente en diagramas técnicos. El texto original de los apuntes se conserva. El ejemplo se revisó visualmente, pero no hay aún un verificador semántico automático de las ilustraciones.
+Las imágenes son ayudas visuales generadas y pueden requerir revisión, especialmente en diagramas técnicos. El texto se conserva en el modo de redacción original; los demás modos lo adaptan solo en el EPUB. El ejemplo se revisó visualmente, pero no hay aún un verificador semántico automático de las ilustraciones.
 
 El EPUB es adaptable, con texto seleccionable. No es una revista escaneada ni una maquetación fija de varias columnas.
 

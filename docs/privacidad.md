@@ -14,6 +14,8 @@ Prelo es una instalación personal: cada persona ejecuta su servicio y genera su
 
 Sin IA, las notas seleccionadas se procesan en tu propio servicio. Al activar IA se envían al proveedor configurado. La generación con Codex utiliza la sesión del usuario del Mac; las credenciales de ChatGPT no se copian al contenedor ni al plugin. La cuota y la disponibilidad dependen de esa cuenta.
 
+El plugin consulta las releases públicas de GitHub al iniciar y cada seis horas para avisar de nuevas versiones, incluidas las betas. No envía notas, rutas del vault ni credenciales; GitHub recibe la conexión HTTP habitual. Puedes desactivar esta consulta en Ajustes de Prelo.
+
 Prelo no incorpora analítica ni telemetría. La instalación descarga dependencias de sus proveedores y puede descargar Python mediante uv. BRAT o GitHub se utilizan para distribuir actualizaciones. Esos servicios tienen sus propias condiciones.
 
 El servicio requiere una credencial compartida y está pensado para una biblioteca personal, no para alojar usuarios independientes. Quien tiene la credencial puede acceder a las publicaciones y anotaciones y gestionar esa biblioteca. El instalador escucha en loopback; los accesos desde otros ordenadores requieren una red privada y HTTPS configurados por el propietario.

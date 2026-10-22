@@ -115,7 +115,7 @@ def change(root, identity, action):
     with database(root) as db:
         if action in {"queue", "pin"} and not current["available"]:
             raise ValueError("El archivo de esta edición se retiró para liberar espacio.")
-        if current["delivery"] == "transferring" and action in {"queue", "cancel"}:
+        if current["delivery"] == "transferring" and action in {"queue", "cancel", "delete"}:
             started = datetime.fromisoformat(current["queued_at"])
             if (datetime.now(timezone.utc) - started).total_seconds() < 300:
                 raise ValueError("Esta edición se está copiando. Espera a que termine o a que caduque el intento.")
@@ -123,6 +123,13 @@ def change(root, identity, action):
             db.execute("UPDATE editions SET delivery='queued',queued_at=? WHERE id=?", (now(), identity))
         elif action == "cancel":
             db.execute("UPDATE editions SET delivery='none' WHERE id=?", (identity,))
+        elif action == "delete":
+            # Retain provenance so annotations from a Kobo copy still resolve.
+            folder = Path(root) / identity
+            for name in (f"margen-{identity}.epub", "cover.svg"):
+                (folder / name).unlink(missing_ok=True)
+            db.execute("UPDATE editions SET delivery='none',queued_at=NULL,pinned=0,archived_at=COALESCE(archived_at,?) WHERE id=?",
+                       (now(), identity))
         elif action in {"pin", "unpin"}:
             db.execute("UPDATE editions SET pinned=? WHERE id=?", (action == "pin", identity))
         else:
@@ -240,7 +247,7 @@ def dashboard(root):
     with database(root) as db:
         events = [dict(r) for r in db.execute("SELECT * FROM events ORDER BY id DESC LIMIT 30")]
     return {"publications": [{k: r.get(k) for k in
-            ("id", "title", "subtitle", "created_at", "style", "filename", "available", "bytes", "pinned", "delivery", "delivered_at", "archived_at")}
+            ("id", "title", "subtitle", "created_at", "style", "writing_mode", "study_aids", "filename", "available", "bytes", "pinned", "delivery", "delivered_at", "archived_at")}
             for r in catalogue], "storage": storage(root), "device": device_state(root),
             "events": [{**r, "data": json.loads(r["data"])} for r in events]}
 

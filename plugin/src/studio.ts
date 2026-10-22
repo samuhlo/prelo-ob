@@ -1,21 +1,25 @@
-import { ItemView, Menu, Notice, setIcon, TFile, WorkspaceLeaf } from "obsidian";
+import { ItemView, Menu, Modal, Notice, setIcon, TFile, WorkspaceLeaf } from "obsidian";
 import { randomUUID } from "node:crypto";
 import type Prelo from "./main";
 import type { Draft, Publication } from "./main";
+import { compareVersions } from "./updates";
 import { matchesSearch, movePath } from "./selection";
 import { appendPreloLogo } from "./brand";
+import { writingModes, studyAids, WritingMode, StudyAids, adaptsContent, needsEditorialAI } from "./editorial";
 
 export const STUDIO_TYPE = "margen-studio";
 export const MARGEN_ICON = "margen-magazine";
 export type StudioTab = "compose" | "library" | "queue";
 export type Composer = {
   paths: string[]; title: string; intent: string; style: "study" | "retro90";
+  preserveOrder: boolean; writingMode: WritingMode; studyAids: StudyAids;
   useAI: boolean; sendToKobo: boolean; step: 1 | 2; draftId?: string;
 };
 export const emptyComposer = (): Composer => ({
-  paths: [], title: "", intent: "", style: "study", useAI: false, sendToKobo: true, step: 1,
+  paths: [], title: "", intent: "", preserveOrder: false, style: "study", writingMode: "original", studyAids: "none", useAI: false, sendToKobo: true, step: 1,
 });
 type Library = {
+  version?: string;
   publications: Publication[];
   device: { state: string; message: string; heartbeat_at?: string; last_sync?: { at: string; added: number; sent: number } };
   storage: { used_bytes: number; limit_bytes: number };
@@ -131,6 +135,7 @@ export class StudioView extends ItemView {
     } finally { this.loading = false; }
   }
   private updateConnection() {
+    this.updateVersionNotice();
     const badge = this.contentEl.querySelector<HTMLElement>(".margen-connection");
     if (badge) {
       badge.setText(this.connection);
@@ -157,11 +162,29 @@ export class StudioView extends ItemView {
       el.dataset.tab = tab;
       el.setAttribute("aria-current", this.tab === tab ? "page" : "false");
     }
+    shell.createDiv({ cls: "margen-update-notice", attr: { role: "status", "aria-live": "polite" } });
+    this.updateVersionNotice();
     this.page = shell.createDiv({ cls: "margen-page" });
     if (this.tab === "compose") this.renderComposer();
     else if (this.tab === "library") this.renderLibrary();
     else this.renderQueue();
     this.updateConnection();
+  }
+  updateVersionNotice() {
+    const notice = this.contentEl.querySelector<HTMLElement>(".margen-update-notice");
+    if (!notice) return;
+    notice.empty();
+    const update = this.plugin.update;
+    const server = this.library?.version;
+    if (server) this.plugin.serverVersion = server;
+    if (update) {
+      notice.createEl("p", { text: `Prelo ${update.version}${update.beta ? " (beta)" : ""} disponible · tienes ${this.plugin.manifest.version} en este equipo.` });
+      button(notice, "Ver actualización", () => this.plugin.openUpdates(), "download");
+    }
+    if (server && compareVersions(this.plugin.manifest.version, server) === 1)
+      notice.createEl("p", { text: `El servidor usa ${server}; este plugin usa ${this.plugin.manifest.version}. Actualiza el servicio y los conectores del Mac para disponer de las nuevas funciones.` });
+    else if (server && compareVersions(server, this.plugin.manifest.version) === 1)
+      notice.createEl("p", { text: `El servidor usa ${server}; actualiza este plugin (${this.plugin.manifest.version}) para disponer de sus nuevas opciones.` });
   }
   private heading(kicker: string, title: string, description: string, parent = this.page!) {
     if (kicker) parent.createEl("p", { cls: "margen-kicker", text: kicker });
@@ -313,28 +336,50 @@ export class StudioView extends ItemView {
       const copy = card.createDiv({ cls: "margen-style-copy" });
       copy.createEl("strong", { text: labelStyle(style) });
       copy.createEl("p", { text: style === "study" ? "Clara, tranquila y centrada en tus apuntes." : "Color, ilustraciones y espíritu de revista de los 90." });
-      copy.createSpan({ cls: "margen-style-cost", text: style === "study" ? "Sin imágenes generadas · IA opcional" : "Portada + hasta 2 ilustraciones · usa tu cuota de IA" });
-      card.onclick = () => { this.plugin.changeComposer({ style, useAI: style === "retro90" }); };
+      copy.createSpan({ cls: "margen-style-cost", text: style === "study" ? "Sin imágenes generadas · IA opcional" : "Portada + una carátula retro por nota · usa tu cuota de IA" });
+      card.onclick = () => { this.plugin.changeComposer({ style }); };
       card.onkeydown = event => {
         if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
         event.preventDefault();
         const next = style === "study" ? "retro90" : "study";
-        this.plugin.changeComposer({ style: next, useAI: next === "retro90" });
+        this.plugin.changeComposer({ style: next });
         this.contentEl.querySelector<HTMLButtonElement>(`.margen-style-card.${next}`)?.focus({ preventScroll: true });
       };
     }
     const fields = this.page!.createDiv({ cls: "margen-editor-fields" });
+    const writing = fields.createEl("label", { cls: "margen-field" });
+    writing.createSpan({ text: "Redacción" });
+    const writingSelect = writing.createEl("select");
+    for (const [value, option] of Object.entries(writingModes)) writingSelect.createEl("option", { value, text: option.label });
+    writingSelect.value = c.writingMode;
+    writing.createEl("small", { text: writingModes[c.writingMode].description });
+    writingSelect.onchange = () => this.plugin.changeComposer({ writingMode: writingSelect.value as WritingMode });
+    const aids = fields.createEl("label", { cls: "margen-field" });
+    aids.createSpan({ text: "Apoyos para estudiar" });
+    const aidsSelect = aids.createEl("select");
+    for (const [value, option] of Object.entries(studyAids)) aidsSelect.createEl("option", { value, text: option.label });
+    aidsSelect.value = c.studyAids;
+    aids.createEl("small", { text: studyAids[c.studyAids].description });
+    aidsSelect.onchange = () => this.plugin.changeComposer({ studyAids: aidsSelect.value as StudyAids });
+    fields.createEl("p", { cls: "margen-hint", text: "La redacción y los apoyos se pueden combinar con ambos tipos de revista. Adaptar el texto o añadir apoyos usa IA. Tus notas del vault no se modifican." });
     const title = fields.createEl("label", { cls: "margen-field" });
     title.createSpan({ text: "Un título para esta lectura" });
     const input = title.createEl("input", { type: "text", placeholder: "Opcional · podemos proponerlo por ti", attr: { maxlength: "160" } });
     input.value = c.title;
     input.oninput = () => { c.title = input.value; void this.plugin.save(); };
     const intention = fields.createEl("label", { cls: "margen-field" });
-    intention.createSpan({ text: "¿Cómo te gustaría organizarla?" });
-    const area = intention.createEl("textarea", { placeholder: "Por ejemplo: empieza por los conceptos básicos y agrupa lo que esté relacionado.", attr: { rows: "2", maxlength: "2000" } });
+    intention.createSpan({ text: "Instrucciones extra (opcional)" });
+    const area = intention.createEl("textarea", { placeholder: "Después de cada tema de redes, coloca inmediatamente su examen resuelto. Ordena las parejas de lo básico a lo avanzado.", attr: { rows: "4", maxlength: "2000" } });
     area.value = c.intent;
-    area.oninput = () => { c.intent = area.value; void this.plugin.save(); };
-    if (c.style === "study") {
+    area.oninput = () => { c.intent = area.value; void this.plugin.save(); this.updateCreateButton(); };
+    intention.createEl("small", { text: "Se aplican con IA y tienen prioridad sobre la organización automática. Puedes indicar orden, agrupaciones y enfoque. Se guardan en el borrador." });
+    const order = fields.createEl("label", { cls: "margen-toggle-row" });
+    const orderCheckbox = order.createEl("input", { type: "checkbox" }); orderCheckbox.checked = c.preserveOrder;
+    orderCheckbox.onchange = () => { c.preserveOrder = orderCheckbox.checked; void this.plugin.save(); };
+    const orderCopy = order.createDiv();
+    orderCopy.createEl("strong", { text: "Respetar exactamente el orden de mi selección" });
+    orderCopy.createEl("small", { text: "Coloca los temas y sus exámenes en Revisar selección. Este orden queda bloqueado, incluso si las instrucciones extra piden otro." });
+    if (c.style === "study" && !adaptsContent(c)) {
       const row = fields.createEl("label", { cls: "margen-toggle-row" });
       const checkbox = row.createEl("input", { type: "checkbox" }); checkbox.checked = c.useAI;
       checkbox.onchange = () => { c.useAI = checkbox.checked; void this.plugin.save(); this.updateCreateButton(); };
@@ -345,7 +390,7 @@ export class StudioView extends ItemView {
     send.onchange = () => { c.sendToKobo = send.checked; void this.plugin.save(); };
     const copy = delivery.createDiv(); copy.createEl("strong", { text: "Prepararla para el Kobo" }); copy.createEl("small", { text: "Se enviará cuando conectes el lector al Mac." });
     const actions = this.page!.createDiv({ cls: "margen-create-footer" });
-    actions.createSpan({ cls: "margen-create-summary", text: `${c.paths.length} notas · ${c.style === "retro90" ? "Hasta 3 imágenes con IA" : c.useAI ? "Organización con IA" : "Sin IA"}` });
+    actions.createSpan({ cls: "margen-create-summary", text: `${c.paths.length} notas · ${adaptsContent(c) ? `${writingModes[c.writingMode].label} · ${studyAids[c.studyAids].label} · IA` : c.style === "retro90" ? `Portada + ${c.paths.length} carátulas con IA` : c.intent.trim() ? "Instrucciones extra con IA" : c.useAI ? "Organización con IA" : "Sin IA"}` });
     button(actions, "Guardar borrador", () => void this.saveDraft(), "bookmark");
     button(actions, "Crear mi revista", () => void this.create(), "sparkles", "margen-primary margen-create-button");
     this.page!.createEl("p", { cls: "margen-create-hint margen-hint" });
@@ -353,15 +398,17 @@ export class StudioView extends ItemView {
   }
   private updateCreateButton() {
     const c = this.plugin.state.composer;
-    const needsAI = c.style === "retro90" || c.useAI;
+    const needsAI = needsEditorialAI(c);
     const blocked = !!this.error || !this.library || needsAI && !this.aiAvailable || !c.paths.length || c.paths.some(p => !(this.app.vault.getAbstractFileByPath(p) instanceof TFile));
     const button = this.contentEl.querySelector<HTMLButtonElement>(".margen-create-button");
     if (button) button.disabled = blocked;
     const summary = this.contentEl.querySelector<HTMLElement>(".margen-create-summary");
-    if (summary) summary.setText(this.error ? "Sin conexión al Mac" : `${c.paths.length} notas · ${c.style === "retro90" ? "Hasta 3 imágenes con IA" : c.useAI ? "Organización con IA" : "Sin IA"}`);
+    if (summary) summary.setText(this.error ? "Sin conexión al Mac" : `${c.paths.length} notas · ${adaptsContent(c) ? `${writingModes[c.writingMode].label} · ${studyAids[c.studyAids].label} · IA` : c.style === "retro90" ? `Portada + ${c.paths.length} carátulas con IA` : c.intent.trim() ? "Instrucciones extra con IA" : c.useAI ? "Organización con IA" : "Sin IA"}`);
     const hint = this.contentEl.querySelector<HTMLElement>(".margen-create-hint");
     if (hint) hint.setText(this.error ? this.error : needsAI && !this.aiAvailable ? "La IA del Mac no está disponible. Puedes usar Revista de estudio sin IA."
-      : c.style === "retro90" ? "La portada y las ilustraciones se crearán a partir de estas notas. Puede tardar unos minutos."
+      : c.intent.trim() ? "Se aplicarán tus instrucciones extra con IA, respetando la redacción elegida y el orden si lo has bloqueado."
+      : adaptsContent(c) ? "La IA preparará la redacción y los apoyos elegidos. Revisa la adaptación antes de estudiar; puede tardar unos minutos."
+      : c.style === "retro90" ? "Se creará una portada y una carátula retro por nota. Cuantas más notas, mayor tiempo y consumo de IA."
       : c.useAI ? "La IA organizará las secciones conservando el texto de tus notas." : "Se conservará el orden que has elegido, sin llamadas a la IA.");
   }
   private async saveDraft() {
@@ -369,7 +416,7 @@ export class StudioView extends ItemView {
     if (!c.paths.length) return;
     await this.plugin.run(async () => {
       const id = c.draftId || randomUUID();
-      await this.plugin.api("/v1/drafts", { id, title: c.title, intent: c.intent, style: c.style, paths: c.paths });
+      await this.plugin.api("/v1/drafts", { id, title: c.title, intent: c.intent, preserve_order: c.preserveOrder, style: c.style, paths: c.paths, writing_mode: c.writingMode, study_aids: c.studyAids, use_ai: c.useAI, send_to_kobo: c.sendToKobo });
       c.draftId = id; await this.plugin.save();
       new Notice("Borrador guardado en tu biblioteca. Puedes continuarlo desde otro equipo.");
       void this.refresh();
@@ -385,7 +432,8 @@ export class StudioView extends ItemView {
       try {
         const prepared = await this.plugin.prepare(chosen);
         const result = await this.plugin.createPublication({
-          title: c.title, intent: c.intent, style: c.style, use_ai: c.style === "retro90" || c.useAI,
+          title: c.title, intent: c.intent, preserve_order: c.preserveOrder, style: c.style, use_ai: needsEditorialAI(c),
+          writing_mode: c.writingMode, study_aids: c.studyAids,
           artwork: c.style === "retro90" ? "generated" : "none", send_to_kobo: c.sendToKobo, ...prepared,
         }, message => { this.progress = message; this.renderProgress(); });
         this.created = result;
@@ -426,7 +474,7 @@ export class StudioView extends ItemView {
         setIcon(row.createSpan(), "bookmark");
         const text = row.createDiv(); text.createEl("strong", { text: draft.title || "Una lectura por preparar" }); text.createEl("small", { text: `${draft.paths.length} notas · ${labelStyle(draft.style)}` });
         button(row, "Continuar", () => {
-          this.plugin.changeComposer({ ...emptyComposer(), paths: draft.paths, title: draft.title, intent: draft.intent, style: draft.style as "study" | "retro90", useAI: draft.style === "retro90", draftId: draft.id }, true);
+          this.plugin.changeComposer({ ...emptyComposer(), paths: draft.paths, title: draft.title, intent: draft.intent, preserveOrder: draft.preserve_order ?? false, style: draft.style as "study" | "retro90", useAI: draft.use_ai ?? draft.style === "retro90", writingMode: draft.writing_mode ?? "original", studyAids: draft.study_aids ?? "none", sendToKobo: draft.send_to_kobo ?? true, draftId: draft.id }, true);
           this.selectTab("compose");
         }, "arrow-right");
         iconButton(row, "trash-2", "Descartar borrador", () => void this.plugin.run(async () => {
@@ -483,9 +531,28 @@ export class StudioView extends ItemView {
       menu.addItem(item => item.setTitle(p.pinned ? "Dejar de conservar" : "Conservar esta edición").setIcon("star").onClick(() => void this.act(p, p.pinned ? "unpin" : "pin")));
       menu.addItem(item => item.setTitle("Guardar EPUB en el vault").setIcon("download").onClick(() => void this.plugin.run(async () => { new Notice("Guardado en " + await this.plugin.saveEpub(p)); })));
       if (queued) menu.addItem(item => item.setTitle("Quitar de la cola").setIcon("list-minus").onClick(() => void this.act(p, "cancel")));
+      menu.addSeparator();
+      menu.addItem(item => item.setTitle("Eliminar EPUB").setIcon("trash-2")
+        .setDisabled(p.delivery === "transferring")
+        .onClick(() => this.confirmDelete(p)));
       const box = (event.currentTarget as HTMLElement).getBoundingClientRect();
       menu.showAtPosition({ x: box.left, y: box.bottom });
     });
+  }
+  private confirmDelete(p: Publication) {
+    const modal = new Modal(this.app);
+    modal.setTitle("Eliminar EPUB");
+    modal.contentEl.createEl("p", { text: `Se eliminará «${p.title}» de los archivos disponibles y de la cola de envío. Para volver a tener el EPUB tendrás que generar otra edición o recuperarlo de una copia.` });
+    modal.contentEl.createEl("p", { text: "Se conservan tus notas, subrayados y el historial de la edición. Las copias que ya tengas en el Kobo o en el vault no se eliminan." });
+    if (p.pinned) modal.contentEl.createEl("p", { text: "Esta edición está marcada como conservada. Al eliminarla también se quitará esa protección." });
+    const actions = modal.contentEl.createDiv({ cls: "margen-book-actions" });
+    const cancel = button(actions, "Cancelar", () => modal.close());
+    button(actions, "Eliminar EPUB", () => {
+      modal.close();
+      void this.act(p, "delete");
+    }, "trash-2", "mod-warning");
+    this.plugin.showModal(modal);
+    cancel.focus();
   }
   private async loadCover(id: string) {
     if (this.covers.has(id)) return this.covers.get(id);
@@ -538,6 +605,12 @@ export class StudioView extends ItemView {
   private async act(p: Publication, action: string) {
     await this.plugin.run(async () => {
       await this.plugin.api(`/v1/publications/${p.id}/action`, { action });
+      if (action === "delete") {
+        const cover = this.covers.get(p.id);
+        if (cover) URL.revokeObjectURL(cover);
+        this.covers.delete(p.id);
+        new Notice("EPUB eliminado. Subrayados e historial conservados.");
+      }
       await this.refresh(true);
       if (action === "queue") new Notice("En cola. La recibirás al conectar el Kobo al Mac.");
     });
