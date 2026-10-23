@@ -9,6 +9,7 @@
 - Revista 90’s abre cada artículo con una página compuesta de ilustración, sección y título; la leyenda encabeza el texto.
 - Las imágenes de las notas se centran como figura sin partirse entre páginas.
 - Idioma de la revista: si la selección está en gallego, se puede elegir castellano o galego para la IA, la portada y el índice.
+- Los artículos redactados de nuevo muestran su título en el idioma de la revista; la procedencia conserva el título de la nota.
 - Un primer encabezado de más de 200 caracteres ya no impide crear la edición; se usa el nombre del archivo.
 - Edición con IA por etapas: un plan editorial con un resumen de cada nota y la redacción por partes, cuatro a la vez por defecto. Las selecciones grandes ya no dependen de una única respuesta.
 - Prompts nuevos por etapa, modo de redacción y apoyos, con reglas de lectura para el Kobo.

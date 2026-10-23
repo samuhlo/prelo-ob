@@ -84,7 +84,7 @@ Recibes la configuración de la edición y las notas (completas o resumidas en t
 - title: un título concreto y atractivo de menos de 70 caracteres, que diga de qué trata el número (nada de «Apuntes» o «Lecturas»). Si title no está vacío en la solicitud, respétalo.
 - subtitle: una frase que explique qué se va a entender al leerlo.
 - chapters: secciones con títulos informativos que agrupen notas relacionadas (normalmente entre 2 y 6 notas por sección) en una secuencia de lectura de lo general a lo particular. Incluye cada id de nota exactamente una vez.
-- briefs: para cada nota, summary con 1 o 2 frases sobre lo que el lector aprenderá en ese artículo, y connections con los ids de otras notas que conviene enlazar o mencionar en las transiciones.
+- briefs: para cada nota, title con el título de su artículo en el idioma de la revista (traducido si la nota está en otro idioma, breve y conservando la numeración del tema si la tiene, por ejemplo «1.2.2. Qué son los switches y las VLAN»), summary con 1 o 2 frases sobre lo que el lector aprenderá en ese artículo, y connections con los ids de otras notas que conviene enlazar o mencionar en las transiciones.
 - Si preserve_order=true, el orden de notes es obligatorio aunque intent sugiera otro: solo puedes agrupar notas consecutivas.
 - Aplica intent como prioridad de organización. Por ejemplo, si pide un examen resuelto después de cada tema, empareja por título y contenido y coloca cada examen inmediatamente después de su tema; no agrupes todos los exámenes al final ni separes esas parejas. No inventes correspondencias que las notas no sustenten.
 - Si previous_error existe, tu propuesta anterior fue rechazada por ese motivo: corrígelo."""

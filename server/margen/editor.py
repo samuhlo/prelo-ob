@@ -265,7 +265,8 @@ class Writer:
             "settings": {"writing_mode": self.request.writing_mode, "study_aids": self.request.study_aids,
                          "language": self.request.language, "intent": self.request.intent},
             "publication": self.plan_view,
-            "article": {"source_id": note.id, "title": note.title, "chapter": self.chapter_of[note.id],
+            "article": {"source_id": note.id, "title": brief.title if brief and brief.title else note.title,
+                        "chapter": self.chapter_of[note.id],
                         "summary": brief.summary if brief else "",
                         "connections": [{"id": i, "title": self.notes[i].title}
                                         for i in (brief.connections if brief else []) if i in self.notes and i != note.id]},
@@ -362,8 +363,9 @@ def plan_publication(request: PublicationRequest, cache_dir: Path | None = None,
             articles = []
             for source_id in order:
                 parts = [future.result() for future in written[source_id]]
+                brief = writer.briefs.get(source_id)
                 articles.append(EditedArticle(
-                    source_id=source_id,
+                    source_id=source_id, title=brief.title.strip() if brief else "",
                     markdown="\n\n".join(p.markdown.strip() for p in parts if p.markdown.strip()),
                     aids="\n\n".join(p.aids.strip() for p in parts if p.aids.strip())))
         except BaseException:

@@ -100,7 +100,7 @@ def test_settings_reach_every_provider(monkeypatch, provider):
             assert payload["language"] == "gl" and "galego" in instructions
             assert [n["id"] for n in payload["notes"]] == ["a", "b"]
             return {"title": "Lectura", "subtitle": "", "chapters": [{"title": "Tema", "source_ids": ["a", "b"]}],
-                    "visuals": [], "briefs": [{"source_id": "a", "summary": "Resumen A", "connections": ["b"]}]}
+                    "visuals": [], "briefs": [{"source_id": "a", "title": "Primeiro en galego", "summary": "Resumen A", "connections": ["b"]}]}
         assert payload["settings"]["writing_mode"] == "narrative" and payload["settings"]["study_aids"] == "complete"
         assert "revista narrativa" in instructions and "Preguntas" in instructions
         return {"markdown": f"Explicación de {payload['source'][-2]}.", "aids": "### Preguntas\n\n1. ¿Qué?"}
@@ -121,6 +121,7 @@ def test_settings_reach_every_provider(monkeypatch, provider):
     monkeypatch.setattr(httpx.Client, "post", post)
     plan = plan_publication(request)
     assert [a.markdown for a in plan.articles] == ["Explicación de A.", "Explicación de B."]
+    assert [a.title for a in plan.articles] == ["Primeiro en galego", ""]
     assert calls[0] == ("plan", "planner", "high")
     assert sorted(calls[1:]) == [("write", "fixture", ""), ("write", "fixture", "")]
 
@@ -217,3 +218,18 @@ def test_galician_edition_sets_language_and_labels(tmp_path):
         assert 'xml:lang="gl"' in content and "Apoios de estudo" in content and "nota orixinal" in content
         assert "NESTE CADERNO" in book.read("EPUB/cover.svg").decode()
     assert PublicationRequest(notes=NOTES).language == "es"
+
+
+def test_rewritten_articles_show_the_translated_title_and_keep_the_note_title(tmp_path):
+    request = PublicationRequest(notes=NOTES, writing_mode="simple", language="es")
+    plan = plan_for("simple", "none")
+    plan.articles[0].title = "1. Primero, en castellano"
+    record = build_epub(request, plan, EDITION, tmp_path)
+    with zipfile.ZipFile(tmp_path / record["filename"]) as book:
+        content = book.read("EPUB/text/n_a.xhtml").decode()
+        assert "<h1>1. Primero, en castellano</h1>" in content and "<h1>Segundo</h1>" in content
+        assert "1. Primero, en castellano" in book.read("EPUB/text/nav.xhtml").decode()
+    assert record["sources"][0]["title"] == "Primero"
+    original = build_epub(PublicationRequest(notes=NOTES), EditorialPlan(title="L", subtitle="",
+                          chapters=[{"title": "T", "source_ids": ["a", "b"]}]), EDITION, tmp_path / "original")
+    assert original["sources"][0]["title"] == "Primero"

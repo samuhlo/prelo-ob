@@ -89,12 +89,15 @@ class VisualBrief(BaseModel):
 
 class EditedArticle(BaseModel):
     source_id: str
+    # Shown title in the edition's language; the note keeps its own for provenance.
+    title: str = Field(default="", max_length=200)
     markdown: str = Field(max_length=300_000)
     aids: str = Field(max_length=100_000)
 
 
 class NoteBrief(BaseModel):
     source_id: str
+    title: str = Field(default="", max_length=200)
     summary: str = Field(max_length=800)
     connections: list[str] = Field(default_factory=list, max_length=10)
 

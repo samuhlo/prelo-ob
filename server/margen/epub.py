@@ -265,7 +265,9 @@ def build_epub(request: PublicationRequest, plan: EditorialPlan, edition_id: str
             text = clean_markdown(reading.markdown) + (article.aids if article else "")
             short = (source_id not in openers and "margen-asset:" not in text and len(text) < SHORT_NOTE
                      and not any(v["source_ids"][0] == source_id for v in illustrations if v["placement"] == "inside"))
-            entries.append({"index": index, "chapter": chapter, "id": source_id, "note": note,
+            # Rewritten articles may carry a title in the edition's language.
+            shown = article.title.strip() if article and article.title.strip() and request.writing_mode != "original" else note.title
+            entries.append({"index": index, "chapter": chapter, "id": source_id, "note": note, "title": shown,
                             "reading": reading, "article": article, "short": short})
     # Consecutive short notes share one file; each keeps its own anchor and provenance.
     groups = []
@@ -324,11 +326,11 @@ def build_epub(request: PublicationRequest, plan: EditorialPlan, edition_id: str
                 head += f'<p class="article-meta">{labels["adapted"]}</p>'
             eyebrow = f'{entry["index"]:02d} / {chapter.title}'
             sections.append(f'<div class="article" id="n_{source_id}"><p class="eyebrow">{html.escape(eyebrow)}</p>'
-                            f'<h1>{html.escape(note.title)}</h1>{head}{body}</div>')
+                            f'<h1>{html.escape(entry["title"])}</h1>{head}{body}</div>')
             if source_id in openers:
                 opener = f"text/o_{source_id}.xhtml"
-                files["EPUB/" + opener] = xhtml(note.title, '<div class="opener">'
-                    + opener_svg(eyebrow, note.title, f'../art/{openers[source_id]["id"]}.jpg') + '</div>',
+                files["EPUB/" + opener] = xhtml(entry["title"], '<div class="opener">'
+                    + opener_svg(eyebrow, entry["title"], f'../art/{openers[source_id]["id"]}.jpg') + '</div>',
                     request.style + " opener-page", request.language)
                 manifest_items.append(("o_" + source_id, opener, "application/xhtml+xml", "svg"))
                 spine.append("o_" + source_id)
@@ -340,9 +342,9 @@ def build_epub(request: PublicationRequest, plan: EditorialPlan, edition_id: str
             })
             target = opener_hrefs.get(source_id, hrefs[source_id])
             toc.setdefault(id(chapter), [chapter.title, target, []])[2].append(
-                f'<li><a href="{target}">{html.escape(note.title)}</a></li>')
+                f'<li><a href="{target}">{html.escape(entry["title"])}</a></li>')
         href = "text/" + files_of[group[0]["id"]]
-        files["EPUB/" + href] = xhtml(group[0]["note"].title, "".join(sections), request.style, request.language)
+        files["EPUB/" + href] = xhtml(group[0]["title"], "".join(sections), request.style, request.language)
         manifest_items.append(("n_" + group[0]["id"], href, "application/xhtml+xml", ""))
         spine.append("n_" + group[0]["id"])
     files["EPUB/text/nav.xhtml"] = xhtml(labels["toc"],
