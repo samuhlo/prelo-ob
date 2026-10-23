@@ -111,6 +111,7 @@ Devuelve en images una lectura por imagen, con su asset_id:
   - edges: source, target, label breve o vacío (puerto, protocolo, dirección) y style: arrow (con sentido), line (conexión sin sentido) o double (en ambos sentidos).
   - Si la imagen muestra pasos numerados de un intercambio entre equipos (petición, traducción, respuesta…), usa sequence con los equipos como participantes y un mensaje por paso, con su número y los datos que cambian.
   - Si los elementos están agrupados (VLAN, subredes, zonas), añade el grupo a la etiqueta de cada elemento («PC1 · VLAN 2»).
+  - Los datos propios de un equipo (su IP, su MAC, su puerto) van en la etiqueta de ese equipo; las etiquetas de las conexiones solo describen lo que circula o la relación.
   - Reproduce lo que muestra la imagen sin añadir ni quitar elementos; copia direcciones, puertos y valores tal cual. Si el dibujo no se puede expresar así sin perder información, usa kind screenshot o photo y descríbelo."""
 
 

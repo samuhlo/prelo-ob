@@ -79,8 +79,15 @@ def bezier(start, control, end, t):
     return tuple((1 - t) ** 2 * a + 2 * (1 - t) * t * c + t ** 2 * b for a, c, b in zip(start, control, end))
 
 
-def edge(rects, e, accent):
-    """(line, label) markup; labels are drawn after every line so none hides them."""
+def overlaps(box, others, pad=4):
+    x, y, w, h = box
+    return any(x - pad < r[0] + r[2] and r[0] < x + w + pad and y - pad < r[1] + r[3] and r[1] < y + h + pad
+               for r in others)
+
+
+def edge(rects, e, accent, labels):
+    """(line, label) markup; labels are drawn after every line so none hides them.
+    labels collects the boxes of labels already placed, so later ones avoid them."""
     a, b = rects[e.source], rects[e.target]
     (ax, ay), (bx, by) = [(r[0] + r[2] / 2, r[1] + r[3] / 2) for r in (a, b)]
     dx, dy = bx - ax, by - ay
@@ -88,23 +95,28 @@ def edge(rects, e, accent):
     straight = ((start[0] + end[0]) / 2, (start[1] + end[1]) / 2)
     control = straight
     length = math.hypot(dx, dy) or 1
-    if any(crosses(rects, e, bezier(start, straight, end, i / 20)) for i in range(1, 20)):
-        # Bend around boxes in between; keep the first bend that clears them all.
-        for offset in (70, -70, 130, -130, 200, -200):
-            candidate = (straight[0] - dy / length * offset, straight[1] + dx / length * offset)
-            if not any(crosses(rects, e, bezier(start, candidate, end, i / 20)) for i in range(1, 20)):
-                control = candidate
-                break
+    blocked = lambda c: sum(crosses(rects, e, bezier(start, c, end, i / 20)) for i in range(1, 20))
+    if blocked(straight):
+        # Bend around boxes in between: the first bend that clears them all, or the
+        # one crossing least. A straight line could hide behind other edges.
+        candidates = [(straight[0] - dy / length * o, straight[1] + dx / length * o)
+                      for o in (70, -70, 130, -130, 200, -200)]
+        control = next((c for c in candidates if not blocked(c)), min(candidates, key=blocked))
     middle = bezier(start, control, end, 0.5)
     if e.label.strip():
-        # Slide the label along its line until it covers no box.
+        # Slide the label along its line, then beside it, until it covers no box or label.
         _, width, height = label_size(e.label)
-        for t in (0.5, 0.38, 0.62, 0.28, 0.72, 0.2, 0.8):
+        normal = (-(end[1] - start[1]) / length, (end[0] - start[0]) / length)
+        def spot(t, side):
             x, y = bezier(start, control, end, t)
-            if not any(x - width / 2 - 4 < r[0] + r[2] and r[0] < x + width / 2 + 4 and
-                       y - height / 2 - 4 < r[1] + r[3] and r[1] < y + height / 2 + 4 for r in rects.values()):
-                middle = (x, y)
-                break
+            return x + normal[0] * side * (height / 2 + 6), y + normal[1] * side * (height / 2 + 6)
+        def cost(point):
+            area = (point[0] - width / 2, point[1] - height / 2, width, height)
+            # Covering a box hides a node; covering a label hides less.
+            return 10 * sum(overlaps(area, [r]) for r in rects.values()) + sum(overlaps(area, [l]) for l in labels)
+        spots = [spot(t, side) for side in (0, 1, -1) for t in (0.5, 0.38, 0.62, 0.28, 0.72, 0.2, 0.8, 0.12, 0.88)]
+        middle = next((p for p in spots if cost(p) == 0), min(spots, key=cost))
+        labels.append((middle[0] - width / 2, middle[1] - height / 2, width, height))
     svg = (f'<path d="M{start[0]:.1f} {start[1]:.1f} Q{control[0]:.1f} {control[1]:.1f} {end[0]:.1f} {end[1]:.1f}" '
            f'fill="none" stroke="{INK}" stroke-width="1.6"/>')
     if e.style in {"arrow", "double"}:
@@ -154,6 +166,14 @@ def flow(diagram, accent, horizontal):
     elif not horizontal and widest > 6 and len(levels) <= 4:
         # Columns hold many siblings without wrapping them into crossing rows.
         horizontal = True
+    widest_label = max((label_size(e.label)[1] for e in diagram.edges if e.label.strip()), default=0)
+    # Labelled arrows need room between columns; boxes need room for their text.
+    gap = min(130, max(46, widest_label + 12))
+    if horizontal and (WIDTH - 2 * MARGIN - (len(levels) - 1) * gap) / len(levels) < 110:
+        if widest > 6:
+            gap = 46
+        else:
+            horizontal = False
     if not horizontal:
         # Wide levels continue on the next row.
         levels = [level[i:i + 6] for level in levels for i in range(0, len(level), 6)]
@@ -162,7 +182,6 @@ def flow(diagram, accent, horizontal):
         predecessors[e.target].append(e.source)
     rects, position, parts = {}, {}, []
     if horizontal:
-        gap = 46
         column = (WIDTH - 2 * MARGIN - (len(levels) - 1) * gap) / len(levels)
         sizes = [[(n, wrap(n.label, int(column / 8.4))) for n in level] for level in levels]
         heights = [sum(16 + len(lines) * LINE for _, lines in level) + (len(level) - 1) * 28 for level in sizes]
@@ -192,14 +211,62 @@ def flow(diagram, accent, horizontal):
                 position[node.id] = x + w / 2
                 parts.append((node, lines))
                 x += w + gap
-            y += row + 70
-        height = y - 70 + MARGIN
-    drawn = [edge(rects, e, accent) for e in diagram.edges if e.source != e.target]
+            # Every labelled arrow leaving a row gets space for its label below it.
+            labelled = sum(1 for e in diagram.edges if e.label.strip() and e.source in {n.id for n in level})
+            below = min(170, 70 + 22 * max(0, labelled - 1))
+            y += row + below
+        height = y - below + MARGIN
+    placed = []
+    drawn = [edge(rects, e, accent, placed) for e in diagram.edges if e.source != e.target]
     svg = [line for line, _ in drawn]
     for node, lines in parts:
         x, y, w, h = rects[node.id]
         svg.append(box(node, x, y, w, h, accent) + text_block(lines, x + w / 2, y + 8, weight="700" if node.kind == "device" else "400"))
     # Lines, then boxes, then edge labels: every text stays readable.
+    return height, "".join(svg + [text for _, text in drawn])
+
+
+def is_ring(diagram):
+    if len(diagram.nodes) < 3 or len(diagram.edges) != len(diagram.nodes):
+        return False
+    degree = defaultdict(int)
+    neighbours = defaultdict(set)
+    for e in diagram.edges:
+        degree[e.source] += 1
+        degree[e.target] += 1
+        neighbours[e.source].add(e.target)
+        neighbours[e.target].add(e.source)
+    if any(degree[n.id] != 2 for n in diagram.nodes):
+        return False
+    seen, stack = set(), [diagram.nodes[0].id]
+    while stack:
+        node = stack.pop()
+        if node not in seen:
+            seen.add(node)
+            stack.extend(neighbours[node] - seen)
+    return len(seen) == len(diagram.nodes)
+
+
+def ring(diagram, accent):
+    count = len(diagram.nodes)
+    w = 150 if count <= 6 else 120
+    radius = 150 if count <= 6 else 190
+    center = (WIDTH / 2, MARGIN + radius + 40)
+    rects, parts = {}, []
+    for i, node in enumerate(diagram.nodes):
+        angle = -math.pi / 2 + 2 * math.pi * i / count
+        lines = wrap(node.label, int(w / 8.4), 3)
+        h = 16 + len(lines) * LINE
+        x, y = center[0] + radius * math.cos(angle) - w / 2, center[1] + radius * math.sin(angle) - h / 2
+        rects[node.id] = (x, y, w, h)
+        parts.append((node, lines))
+    placed = []
+    drawn = [edge(rects, e, accent, placed) for e in diagram.edges]
+    svg = [line for line, _ in drawn]
+    for node, lines in parts:
+        x, y, w, h = rects[node.id]
+        svg.append(box(node, x, y, w, h, accent) + text_block(lines, x + w / 2, y + 8, weight="700" if node.kind == "device" else "400"))
+    height = max(r[1] + r[3] for r in rects.values()) + MARGIN
     return height, "".join(svg + [text for _, text in drawn])
 
 
@@ -265,7 +332,7 @@ def render_diagram(diagram: Diagram, style: str = "study") -> str | None:
     else:
         if not 2 <= len(diagram.nodes) <= 16:
             return None
-        height, body = flow(diagram, accent, diagram.layout == "flow_right")
+        height, body = ring(diagram, accent) if is_ring(diagram) else flow(diagram, accent, diagram.layout == "flow_right")
     return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{WIDTH}" height="{height:.0f}" '
             f'viewBox="0 0 {WIDTH} {height:.0f}"><rect width="{WIDTH}" height="{height:.0f}" fill="{PAPER}"/>'
             f'<g font-family="sans-serif">{body}</g></svg>')

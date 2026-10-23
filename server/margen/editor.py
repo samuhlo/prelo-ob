@@ -209,6 +209,8 @@ def required_tokens(source: str) -> set[str]:
     """Literal items a faithful rewrite or translation must keep: data, code and images."""
     # The H1 repeats the article title, which the layout already shows.
     source = re.sub(r"^# .*$", "", source, flags=re.M)
+    # Long unbroken strings are base64 blobs or hashes pasted by accident, not data to keep.
+    source = re.sub(r"\S{60,}", " ", source)
     tokens = {t.strip("`") for t in TOKEN.findall(source)}
     # Commands must survive verbatim; untagged blocks are often tables pasted from
     # a PDF and may become a translated table, so only their data is required.

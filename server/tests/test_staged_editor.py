@@ -126,3 +126,8 @@ def test_untagged_blocks_only_require_their_data():
     written = "| MAC | Puerto | Tiempo |\n|---|---|---|\n| P | 1 | 10:00:12 |\n\n```sh\nip route show\n```"
     assert missing_tokens(source, written) == []
     assert missing_tokens(source, "| P | 1 | 10:00:12 |") == ["ip route show"]
+
+
+def test_pasted_blobs_are_not_required_data():
+    blob = "u2lWj6/EI/dozvKuY0BYoK2n71zVT4gxbVTT4mHbkmI51v3R5OwNO+uQa+RCf2615RTrevhH4uYrIbe"
+    assert missing_tokens(f"Porto 8080.\n\n{blob}", "Puerto 8080.") == []
