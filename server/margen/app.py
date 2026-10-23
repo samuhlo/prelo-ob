@@ -11,7 +11,7 @@ from fastapi import FastAPI, Depends, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from . import __version__
-from .models import PublicationRequest, HighlightsRequest, WritingMode, StudyAids, Language
+from .models import PublicationRequest, HighlightsRequest, WritingMode, StudyAids, Language, Images
 from .editor import ai_available, plan_publication
 from .epub import build_epub
 from .highlights import resolve
@@ -339,6 +339,7 @@ class Draft(BaseModel):
     writing_mode: WritingMode = "original"
     study_aids: StudyAids = "none"
     language: Language | None = None
+    images: Images = "keep"
     use_ai: bool = False
     send_to_kobo: bool = True
     paths: list[str] = Field(min_length=1, max_length=100)

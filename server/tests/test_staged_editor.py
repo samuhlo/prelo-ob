@@ -24,7 +24,7 @@ def ai(monkeypatch):
     monkeypatch.setenv("AI_CHUNK_CHARS", "8000")
     calls = []
     def install(write):
-        def complete(stage, instructions, payload, schema):
+        def complete(stage, instructions, payload, schema, images=None):
             calls.append((stage, payload))
             return outline(current["request"]) if stage == "plan" else write(payload)
         monkeypatch.setattr(editor, "complete", complete)
@@ -63,7 +63,7 @@ def test_outline_digests_large_selections_and_retries_invalid_plans(ai, monkeypa
     request = PublicationRequest(notes=[note("a", SECTION * 12), note("b", "Breve.")])
     request.use_ai = True
     payloads = []
-    def complete(stage, instructions, payload, schema):
+    def complete(stage, instructions, payload, schema, images=None):
         payloads.append(payload)
         ids = ["a"] if len(payloads) == 1 else ["a", "b"]
         return {"title": "Redes", "subtitle": "", "visuals": [], "briefs": [],

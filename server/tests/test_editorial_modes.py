@@ -104,7 +104,7 @@ def test_settings_reach_every_provider(monkeypatch, provider):
         assert payload["settings"]["writing_mode"] == "narrative" and payload["settings"]["study_aids"] == "complete"
         assert "revista narrativa" in instructions and "Preguntas" in instructions
         return {"markdown": f"Explicación de {payload['source'][-2]}.", "aids": "### Preguntas\n\n1. ¿Qué?"}
-    def codex(instructions, payload, schema, model, effort, timeout):
+    def codex(instructions, payload, schema, model, effort, timeout, images):
         assert "markdown" in schema["required"] or "chapters" in schema["required"]
         return answer(instructions, payload, model, effort)
     def post(self, url, **kwargs):

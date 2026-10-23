@@ -1,4 +1,5 @@
 """Personal local editor using the user's official Codex CLI login."""
+import base64
 import json
 import os
 import shutil
@@ -33,7 +34,7 @@ def codex_executable():
 
 
 def codex_complete(instructions: str, payload: dict, schema: dict, model: str = "", effort: str = "",
-                   timeout: int = 600) -> dict:
+                   timeout: int = 600, images: list[dict] | None = None) -> dict:
     if not SLOTS.acquire(timeout=timeout):
         raise ValueError("Codex sigue ocupado con otra parte de la edición. Inténtalo de nuevo.")
     try:
@@ -56,6 +57,12 @@ def codex_complete(instructions: str, payload: dict, schema: dict, model: str = 
                 args.extend(["--model", model])
             if effort:
                 args.extend(["-c", f'model_reasoning_effort="{effort}"'])
+            extensions = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
+            for number, image in enumerate(images or [], 1):
+                path = workdir / f"image-{number:02d}.{extensions[image['media_type']]}"
+                path.write_bytes(base64.b64decode(image["data"], validate=True))
+                # One value per flag: --image accepts several and would swallow the final "-".
+                args.append(f"--image={path}")
             args.append("-")
             prompt = instructions + (
                 "\n\nDevuelve solamente el JSON pedido. No uses herramientas, no leas archivos, "
@@ -65,6 +72,9 @@ def codex_complete(instructions: str, payload: dict, schema: dict, model: str = 
             result = subprocess.run(args, input=prompt, text=True, capture_output=True,
                                     timeout=timeout, env=codex_environment())
             if result.returncode or not answer_path.exists():
+                # Only Codex's own error line is inspected; the output is never echoed.
+                if model and "model is not supported" in result.stdout + result.stderr:
+                    raise ValueError(f"El modelo «{model}» no está disponible en tu cuenta de Codex. Revisa AI_MODEL en la configuración.")
                 raise ValueError("Codex no pudo preparar la edición. Comprueba «codex login status» y los límites de tu cuenta.")
             try:
                 return json.loads(answer_path.read_text())

@@ -36,6 +36,7 @@ class Asset(BaseModel):
 
 
 WritingMode = Literal["original", "narrative", "simple", "step_by_step", "review"]
+Images = Literal["keep", "redraw"]
 StudyAids = Literal["none", "visual", "practice", "complete"]
 Language = Literal["es", "gl"]
 
@@ -49,6 +50,7 @@ class PublicationRequest(BaseModel):
     writing_mode: WritingMode = "original"
     study_aids: StudyAids = "none"
     language: Language = "es"
+    images: Images = "keep"
     use_ai: bool = False
     send_to_kobo: bool = False
     notes: list[Source] = Field(min_length=1, max_length=100)
@@ -56,7 +58,7 @@ class PublicationRequest(BaseModel):
 
     @model_validator(mode="after")
     def unique_ids_and_size(self):
-        if self.intent.strip() or self.writing_mode != "original" or self.study_aids != "none":
+        if self.intent.strip() or self.writing_mode != "original" or self.study_aids != "none" or self.images == "redraw":
             self.use_ai = True
         if self.style == "editorial":
             self.style = "study"
@@ -85,6 +87,53 @@ class VisualBrief(BaseModel):
     description: str = Field(min_length=1, max_length=2000)
     caption: str = Field(max_length=500)
     anchor_heading: str = Field(default="", max_length=200)
+
+
+NodeId = Field(pattern=r"^[A-Za-z0-9_-]{1,24}$")
+
+
+class DiagramNode(BaseModel):
+    id: str = NodeId
+    label: str = Field(max_length=80)
+    kind: Literal["box", "device", "network", "storage", "actor", "note"]
+
+
+class DiagramEdge(BaseModel):
+    source: str = Field(max_length=24)
+    target: str = Field(max_length=24)
+    label: str = Field(max_length=60)
+    style: Literal["arrow", "line", "double"]
+
+
+class Diagram(BaseModel):
+    layout: Literal["flow_down", "flow_right", "layers", "sequence"]
+    nodes: list[DiagramNode] = Field(max_length=24)
+    edges: list[DiagramEdge] = Field(max_length=40)
+
+
+class ImageReading(BaseModel):
+    """What the vision stage reads in one image of the notes."""
+    asset_id: str = Field(max_length=80)
+    kind: Literal["diagram", "table", "formula", "screenshot", "photo", "decorative", "unreadable"]
+    description: str = Field(max_length=600)
+    caption: str = Field(max_length=220)
+    confidence: Literal["high", "medium", "low"]
+    table_markdown: str = Field(max_length=8000)
+    diagram: Diagram
+
+
+class ImageReadings(BaseModel):
+    images: list[ImageReading] = Field(max_length=12)
+
+
+class Figure(BaseModel):
+    """Decision taken for one original image; applied identically when writing and rendering."""
+    asset_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,80}$")
+    action: Literal["diagram", "table", "caption", "remove"]
+    description: str = Field(max_length=600)
+    caption: str = Field(max_length=220)
+    table_markdown: str = Field(default="", max_length=8000)
+    diagram: Diagram | None = None
 
 
 class EditedArticle(BaseModel):
@@ -120,6 +169,7 @@ class EditorialPlan(BaseModel):
     visuals: list[VisualBrief] = Field(default_factory=list, max_length=201)
 
     articles: list[EditedArticle] = Field(default_factory=list, max_length=100)
+    figures: list[Figure] = Field(default_factory=list, max_length=200)
 
     def verify_sources(self, notes: list[Source]):
         ids = [i for c in self.chapters for i in c.source_ids]

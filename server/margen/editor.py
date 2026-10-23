@@ -9,8 +9,9 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import httpx
 from pydantic import BaseModel, ValidationError
-from .models import EditorialPlan, Chapter, PublicationRequest, Outline, WrittenPart, EditedArticle
-from .prompts import outline_instructions, write_instructions
+from .models import EditorialPlan, Chapter, PublicationRequest, Outline, WrittenPart, EditedArticle, ImageReadings
+from .prompts import outline_instructions, write_instructions, vision_instructions
+from .figures import apply_figures, read_images
 
 DEFAULT_SUBTITLE = {"es": "Una selección de tu biblioteca personal", "gl": "Unha selección da túa biblioteca persoal"}
 # Below this total the planner reads every note in full; above it, a digest of each.
@@ -49,19 +50,21 @@ def timeout():
     return int(os.getenv("AI_TIMEOUT", "600"))
 
 
-def complete(stage: str, instructions: str, payload: dict, schema: dict) -> dict:
+def complete(stage: str, instructions: str, payload: dict, schema: dict, images: list[dict] | None = None) -> dict:
+    """images: [{"media_type": "image/png", "data": base64}] attached in order."""
     model, effort = stage_settings(stage)
     provider = os.getenv("AI_PROVIDER")
+    images = images or []
     if provider == "codex-cli":
         from .codex_editor import codex_complete
-        return codex_complete(instructions, payload, schema, model, effort, timeout())
+        return codex_complete(instructions, payload, schema, model, effort, timeout(), images)
     if provider == "codex-bridge":
         try:
             with httpx.Client(timeout=timeout() + 30, follow_redirects=False) as client:
                 response = client.post(os.environ["CODEX_BRIDGE_URL"].rstrip("/") + "/v1/complete",
                     headers={"Authorization": "Bearer " + os.environ["MARGEN_TOKEN"]},
                     json={"instructions": instructions, "input": payload, "output_schema": schema,
-                          "model": model, "effort": effort})
+                          "model": model, "effort": effort, "images": images})
                 if response.status_code == 404:
                     raise ValueError("El puente de Codex del Mac es de una versión anterior. Actualiza Prelo en el Mac.")
                 if response.status_code == 422:
@@ -73,7 +76,9 @@ def complete(stage: str, instructions: str, payload: dict, schema: dict) -> dict
     body = {
         "model": model,
         "messages": [{"role": "system", "content": instructions},
-                     {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
+                     {"role": "user", "content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}] + [
+                         {"type": "image_url", "image_url": {"url": f"data:{i['media_type']};base64,{i['data']}"}}
+                         for i in images] if images else json.dumps(payload, ensure_ascii=False)}],
         "response_format": {"type": "json_schema", "json_schema": {
             "name": stage, "strict": True, "schema": schema,
         }},
@@ -110,13 +115,14 @@ class Cache:
                 if path.stat().st_mtime < limit:
                     path.unlink(missing_ok=True)
 
-    def call(self, stage, instructions, payload, schema):
+    def call(self, stage, instructions, payload, schema, images=None):
+        # Images are identified in the payload by their content hash; their bytes stay out of the key.
         key = hashlib.sha256(json.dumps([stage_settings(stage), instructions, payload, schema],
                                         ensure_ascii=False, sort_keys=True).encode()).hexdigest()
         path = self.directory / f"{key}.json" if self.directory else None
         if path and path.exists():
             return json.loads(path.read_text())
-        result = complete(stage, instructions, payload, schema)
+        result = complete(stage, instructions, payload, schema, images)
         if path:
             temporary = path.with_suffix(".tmp")
             temporary.write_text(json.dumps(result, ensure_ascii=False))
@@ -189,14 +195,14 @@ def split_markdown(text: str, limit: int) -> list[str]:
 def digest(note, full: bool):
     text = body_of(note.markdown)
     entry = {"id": note.id, "title": note.title, "path": note.path, "characters": len(text),
-             "images": text.count("margen-asset:")}
+             "images": len(re.findall(r"margen-(?:asset|figure):", text))}
     if full:
         return {**entry, "markdown": text}
     headings = [b.strip() for b in blocks(text) if re.match(r"#{1,3} ", b.strip()) and "\n" not in b.strip()]
     return {**entry, "headings": headings[:40], "beginning": text[:1500]}
 
 
-TOKEN = re.compile(r"margen-asset:[\w-]+|\d[\d.:/]*\d|`[^`\n]{2,80}`")
+TOKEN = re.compile(r"margen-(?:asset|figure):[\w-]+|\d[\d.:/]*\d|`[^`\n]{2,80}`")
 
 
 def required_tokens(source: str) -> set[str]:
@@ -328,12 +334,18 @@ def plan_publication(request: PublicationRequest, cache_dir: Path | None = None,
     if not ai_available():
         raise ValueError("Activa un proveedor de IA en el servidor para usar esta opción.")
     cache = Cache(cache_dir)
+    figures, working = [], request
+    if request.images == "redraw" and request.assets:
+        figures = read_images(request, cache, progress, vision_instructions(request), strict_schema(ImageReadings))
+        # Later stages read the notes with their images already reinterpreted.
+        working = request.model_copy(update={"notes": [
+            n.model_copy(update={"markdown": apply_figures(n.markdown, figures, request.language)}) for n in request.notes]})
     progress("Preparando el plan editorial del número.")
-    outline = make_outline(request, cache)
-    plan = EditorialPlan(**outline.model_dump(exclude={"briefs"}))
+    outline = make_outline(working, cache)
+    plan = EditorialPlan(**outline.model_dump(exclude={"briefs"}), figures=figures)
     if request.title.strip():
         plan.title = request.title.strip()
     if request.writing_mode != "original" or request.study_aids != "none":
-        plan.articles = write_articles(request, outline, cache, progress)
+        plan.articles = write_articles(working, outline, cache, progress)
     # Validate the complete editorial result before rendering any edition.
     return plan.verify_visuals(request)

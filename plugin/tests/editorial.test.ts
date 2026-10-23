@@ -30,3 +30,9 @@ test("detects Galician prose and leaves Spanish or code-only notes alone", async
   assert.equal(looksGalician([spanish, galician.slice(0, 80)]), false);
   assert.equal(looksGalician(["---\ntags: []\n---\n```sh\nip a\n```"]), false);
 });
+
+test("reinterpreting images needs AI even with original text and no organization", () => {
+  const original = { style: "study", useAI: false, writingMode: "original" as const, studyAids: "none" as const };
+  assert.equal(needsEditorialAI({ ...original, redrawImages: true }), true);
+  assert.equal(needsEditorialAI({ ...original, redrawImages: false }), false);
+});

@@ -11,6 +11,8 @@ from lxml import etree, html as lhtml
 from markdown_it import MarkdownIt
 from .models import PublicationRequest, EditorialPlan
 from .design import cover_svg, opener_svg
+from .diagrams import render_diagram
+from .figures import apply_figures
 
 XHTML = "http://www.w3.org/1999/xhtml"
 EPUB = "http://www.idpf.org/2007/ops"
@@ -27,7 +29,10 @@ h2 { font-size:1.35em; margin-top:1.5em; }
 .cover { margin:0; text-align:center; }
 .cover img { width:100%; max-height:100%; }
 img { max-width:100%; height:auto; }
-p.figure { text-align:center; text-indent:0; margin:1em 0; page-break-inside:avoid; }
+p.figure { text-align:center; text-indent:0; margin:1em 0 0.3em; page-break-inside:avoid; }
+img.diagram { width:100%; }
+p.figure-caption { font-family:sans-serif; font-size:0.85em; text-align:center; text-indent:0; margin:0 0 1.2em; page-break-before:avoid; }
+.original { margin-bottom:2em; page-break-inside:avoid; }
 p, li { orphans:2; widows:2; }
 .article + .article { margin-top:2.5em; padding-top:1em; border-top:1px solid #aaa; }
 body.opener-page { margin:0; padding:0; }
@@ -66,10 +71,12 @@ p.illustration-caption { display:block; height:auto; font-family:sans-serif; fon
 LABELS = {
     "es": {"cover": "Portada", "aids": "Apoyos de estudio · IA", "illustration": "Ilustración",
            "adapted": "Texto adaptado con IA a partir de la nota original.", "issue": "En este número",
-           "toc": "Índice", "image": "Imagen", "no_description": "sin descripción"},
+           "toc": "Índice", "image": "Imagen", "no_description": "sin descripción",
+           "originals": "Imágenes originales"},
     "gl": {"cover": "Portada", "aids": "Apoios de estudo · IA", "illustration": "Ilustración",
            "adapted": "Texto adaptado con IA a partir da nota orixinal.", "issue": "Neste número",
-           "toc": "Índice", "image": "Imaxe", "no_description": "sen descrición"},
+           "toc": "Índice", "image": "Imaxe", "no_description": "sen descrición",
+           "originals": "Imaxes orixinais"},
 }
 # Below roughly one e-reader page of text a note shares its file with its
 # neighbours instead of opening a new, mostly blank page.
@@ -95,7 +102,7 @@ def xhtml(title, body, body_class="", language="es"):
 <body class="{body_class}">{body}</body></html>"""
 
 
-def render_note(source, hrefs, assets, warnings, labels=LABELS["es"]):
+def render_note(source, hrefs, assets, warnings, labels=LABELS["es"], figures=frozenset()):
     text = clean_markdown(source.markdown)
     # Legacy/unresolved wiki references remain readable, and are reported.
     def wiki(match):
@@ -114,8 +121,12 @@ def render_note(source, hrefs, assets, warnings, labels=LABELS["es"]):
     for node in fragment.xpath(".//img"):
         src = node.get("src", "")
         asset_id = src.removeprefix("margen-asset:")
+        figure_id = src.removeprefix("margen-figure:")
         if src.startswith("margen-asset:") and asset_id in assets:
             node.set("src", "../assets/" + assets[asset_id])
+        elif src.startswith("margen-figure:") and figure_id in figures:
+            node.set("src", f"../figures/{figure_id}.svg")
+            node.set("class", "diagram")
         else:
             warnings.append(f"{source.path}: imagen no incluida ({src[:120]}).")
             node.tag = "span"
@@ -124,11 +135,18 @@ def render_note(source, hrefs, assets, warnings, labels=LABELS["es"]):
     for node in fragment.xpath(".//p[img]"):
         if len(node) == 1 and not (node.text or "").strip() and not (node[0].tail or "").strip():
             node.set("class", "figure")
+            caption = node.getnext()
+            if caption is not None and caption.tag == "p" and len(caption) and caption[0].tag == "em" \
+                    and not (caption.text or "").strip():
+                caption.set("class", "figure-caption")
     for node in fragment.xpath(".//a"):
         href = node.get("href", "")
         target = href.removeprefix("margen-note:").split("#")[0]
+        original = href.removeprefix("margen-original:")
         if href.startswith("margen-note:") and target in hrefs:
             node.set("href", hrefs[target])
+        elif href.startswith("margen-original:") and original in assets:
+            node.set("href", f"originales.xhtml#o_{original}")
         elif not href.startswith(("https://", "http://", "mailto:")):
             node.tag = "span"
             node.attrib.clear()
@@ -174,6 +192,13 @@ def build_epub(request: PublicationRequest, plan: EditorialPlan, edition_id: str
         files["EPUB/" + image_file] = base64.b64decode(illustration["data"], validate=True)
         manifest_items.append(("art_" + illustration["id"], image_file, "image/jpeg", ""))
     labels = LABELS[request.language]
+    drawn = set()
+    for figure in plan.figures:
+        svg = render_diagram(figure.diagram, request.style) if figure.action == "diagram" and figure.diagram else None
+        if svg:
+            files[f"EPUB/figures/{figure.asset_id}.svg"] = svg
+            manifest_items.append(("f_" + figure.asset_id, f"figures/{figure.asset_id}.svg", "image/svg+xml", ""))
+            drawn.add(figure.asset_id)
     openers = {}
     for illustration in illustrations:
         source_id = illustration["source_ids"][0]
@@ -184,7 +209,8 @@ def build_epub(request: PublicationRequest, plan: EditorialPlan, edition_id: str
         for source_id in chapter.source_ids:
             note = notes[source_id]
             article = articles.get(source_id)
-            reading = note.model_copy(update={"markdown": article.markdown}) if article and request.writing_mode != "original" else note
+            reading = note.model_copy(update={"markdown": article.markdown}) if article and request.writing_mode != "original" \
+                else note.model_copy(update={"markdown": apply_figures(note.markdown, plan.figures, request.language)})
             text = clean_markdown(reading.markdown) + (article.aids if article else "")
             short = (source_id not in openers and "margen-asset:" not in text and len(text) < SHORT_NOTE
                      and not any(v["source_ids"][0] == source_id for v in illustrations if v["placement"] == "inside"))
@@ -209,10 +235,10 @@ def build_epub(request: PublicationRequest, plan: EditorialPlan, edition_id: str
         sections = []
         for entry in group:
             note, article, chapter, source_id = entry["note"], entry["article"], entry["chapter"], entry["id"]
-            body, plain = render_note(entry["reading"], hrefs, assets, warnings, labels)
+            body, plain = render_note(entry["reading"], hrefs, assets, warnings, labels, drawn)
             if article and article.aids:
                 aid_note = note.model_copy(update={"id": note.id + "_aids", "markdown": article.aids})
-                aids_body, aids_plain = render_note(aid_note, hrefs, assets, warnings, labels)
+                aids_body, aids_plain = render_note(aid_note, hrefs, assets, warnings, labels, drawn)
                 body += f'<div class="study-aids"><h2>{labels["aids"]}</h2>' + aids_body + '</div>'
                 plain += " " + aids_plain
             relevant = [v for v in illustrations if v["placement"] == "inside" and v["source_ids"][0] == source_id
@@ -266,10 +292,22 @@ def build_epub(request: PublicationRequest, plan: EditorialPlan, edition_id: str
         files["EPUB/" + href] = xhtml(group[0]["note"].title, "".join(sections), request.style, request.language)
         manifest_items.append(("n_" + group[0]["id"], href, "application/xhtml+xml", ""))
         spine.append("n_" + group[0]["id"])
+    replaced = [f for f in plan.figures if f.action == "table" or f.asset_id in drawn]
+    replaced = [f for f in replaced if f.asset_id in assets]
+    if replaced:
+        # Every redrawn or transcribed image stays available for checking.
+        files["EPUB/text/originales.xhtml"] = xhtml(labels["originals"], f'<h1>{labels["originals"]}</h1>' + "".join(
+            f'<div class="original" id="o_{f.asset_id}"><p class="figure"><img src="../assets/{assets[f.asset_id]}" '
+            f'alt="{html.escape(f.description, quote=True)}"/></p>'
+            f'<p class="figure-caption">{html.escape(f.caption or f.description)}</p></div>' for f in replaced),
+            request.style, request.language)
+        manifest_items.append(("originales", "text/originales.xhtml", "application/xhtml+xml", ""))
+        spine.append("originales")
+        toc[id(replaced)] = [labels["originals"], "originales.xhtml", []]
     files["EPUB/text/nav.xhtml"] = xhtml(labels["toc"],
         f'<p class="eyebrow">{labels["issue"]}</p><h1>{html.escape(plan.title)}</h1>'
         f'<p>{html.escape(plan.subtitle)}</p><nav epub:type="toc" id="toc"><h2>{labels["toc"]}</h2><ol>'
-        + "".join(f'<li><a href="{target}">{html.escape(title)}</a><ol>{"".join(items)}</ol></li>'
+        + "".join(f'<li><a href="{target}">{html.escape(title)}</a>{"<ol>" + "".join(items) + "</ol>" if items else ""}</li>'
                   for title, target, items in toc.values())
         + "</ol></nav>", request.style, request.language)
     package = etree.Element(f"{{{OPF}}}package", nsmap={None: OPF}, version="3.0",

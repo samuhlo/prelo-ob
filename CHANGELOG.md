@@ -2,6 +2,8 @@
 
 ## Sin publicar — Maquetación e idioma
 
+- Opción «Reinterpretar esquemas e imágenes»: la IA lee cada imagen con su contexto. Los esquemas se redibujan en SVG con el estilo de la revista (flujos, capas e intercambios de mensajes), las tablas pasan a texto y el resto recibe descripción y pie. Las lecturas dudosas conservan la imagen original.
+- Apéndice «Imágenes originales» enlazado desde cada imagen redibujada o convertida.
 - Las notas cortas consecutivas comparten página; cada una conserva su ancla, su procedencia y la recuperación de subrayados.
 - Se retira el pie «Fuente: …» al final de cada artículo, que podía quedar solo en una página.
 - Revista 90’s abre cada artículo con una página compuesta de ilustración, sección y título; la leyenda encabeza el texto.
