@@ -83,6 +83,24 @@ codex login status
 
 Después ejecuta el instalador con `--ai codex`. Prelo mantiene la autenticación de Codex en el Mac y usa su modo no interactivo para la edición y las imágenes. Requiere acceso a Codex, compatibilidad del CLI y cuota disponible; los errores de autenticación o límites se muestran como errores, sin cambiar a una clave API por su cuenta. [Autenticación](https://learn.chatgpt.com/docs/auth), [modo no interactivo](https://learn.chatgpt.com/docs/non-interactive-mode).
 
+### Cómo trabaja la IA
+
+Una edición con IA se prepara por etapas. Primero, una llamada propone el plan del número a partir de un resumen de cada nota: título, ruta, encabezados y comienzo. Si la selección es pequeña, recibe las notas completas. Después, si la redacción o los apoyos lo requieren, cada nota se divide en partes de unos 20.000 caracteres, sin cortar bloques de código, y se redacta en llamadas paralelas. Cada parte se comprueba: si faltan cifras, comandos o imágenes de la fuente, se pide una vez más con esa lista. Las partes terminadas se guardan durante 30 días en la biblioteca, así que reintentar una edición fallida solo repite lo que faltaba.
+
+Ajustes opcionales del archivo `.env` del servicio (al cambiarlos, vuelve a ejecutar el instalador):
+
+| Ajuste | Uso |
+|---|---|
+| `AI_MODEL_PLAN`, `AI_EFFORT_PLAN` | Modelo y esfuerzo de razonamiento del plan editorial. |
+| `AI_MODEL_WRITE`, `AI_EFFORT_WRITE` | Modelo y esfuerzo de la redacción por partes. |
+| `AI_MODEL`, `AI_EFFORT` | Valores por defecto de ambas etapas. Vacíos, Codex usa su modelo predeterminado. |
+| `AI_CONCURRENCY` | Llamadas simultáneas (2 por defecto). |
+| `AI_CHUNK_CHARS`, `AI_TIMEOUT` | Tamaño de cada parte y segundos por llamada. |
+
+Con Codex, la configuración recomendada es `AI_MODEL=sol-6.1`, con `AI_EFFORT_PLAN=high` para el plan y `AI_EFFORT_WRITE=medium` para la redacción.
+
+El puente ignora la configuración personal de Codex (`~/.codex/config.toml`) para no depender de ella: indica aquí el modelo si quieres uno concreto.
+
 Para proveedores compatibles, el servicio conserva `AI_BASE_URL`, `AI_MODEL` y `AI_API_KEY`; es una configuración avanzada del despliegue. Ese modo organiza y adapta texto, añade apoyos de estudio y no ofrece la generación de imágenes de Revista 90's de esta versión.
 
 ## Actualizar

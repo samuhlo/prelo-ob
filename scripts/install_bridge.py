@@ -22,7 +22,7 @@ def install(runtime, env_file, *, label="local.margen.codex-bridge", agent=True,
         run(["uv", "venv", "--python", "3.13", python.parent.parent], timeout=240)
     run(["uv", "pip", "install", "--python", python, "-r", Path(root) / "server/requirements.lock"], timeout=240)
     run(["uv", "pip", "install", "--python", python, "--no-deps", "--reinstall-package", "margen-server", Path(root) / "server"], timeout=180)
-    values = {k: v for k, v in env.items() if k in {"MARGEN_TOKEN", "AI_MODEL", "CODEX_BIN"}}
+    values = {k: v for k, v in env.items() if k in {"MARGEN_TOKEN", "AI_MODEL", "CODEX_BIN", "AI_CONCURRENCY", "AI_TIMEOUT"}}
     write_private(runtime / ".env", "".join(f"{k}={v}\n" for k, v in values.items()))
     if not agent:
         return python

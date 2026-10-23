@@ -81,33 +81,48 @@ def test_original_cannot_be_silently_rewritten():
 
 @pytest.mark.parametrize("provider", ["http", "codex-cli", "codex-bridge"])
 def test_settings_reach_every_provider(monkeypatch, provider):
-    request = PublicationRequest(notes=NOTES, writing_mode="narrative", study_aids="complete",
+    request = PublicationRequest(notes=NOTES, writing_mode="narrative", study_aids="complete", language="gl",
                                  intent="Cada tema seguido de su examen resuelto.", preserve_order=True)
-    expected = plan_for("narrative", "complete")
     monkeypatch.setattr("margen.editor.ai_available", lambda: True)
     monkeypatch.setenv("AI_PROVIDER", provider)
     monkeypatch.setenv("AI_BASE_URL", "http://fixture/v1")
     monkeypatch.setenv("CODEX_BRIDGE_URL", "http://fixture")
     monkeypatch.setenv("MARGEN_TOKEN", "fixture")
     monkeypatch.setenv("AI_MODEL", "fixture")
-    def codex(request, schema, instructions):
-        assert request.writing_mode == "narrative" and request.study_aids == "complete"
-        assert request.intent == "Cada tema seguido de su examen resuelto." and request.preserve_order
-        assert "articles" in schema["required"]
-        assert "writing_mode" in instructions
-        return expected.verify_visuals(request)
+    monkeypatch.setenv("AI_MODEL_PLAN", "planner")
+    monkeypatch.setenv("AI_EFFORT_PLAN", "high")
+    calls = []
+    def answer(instructions, payload, model, effort):
+        stage = "plan" if "notes" in payload else "write"
+        calls.append((stage, model, effort))
+        if stage == "plan":
+            assert payload["intent"] == request.intent and payload["preserve_order"] is True
+            assert payload["language"] == "gl" and "galego" in instructions
+            assert [n["id"] for n in payload["notes"]] == ["a", "b"]
+            return {"title": "Lectura", "subtitle": "", "chapters": [{"title": "Tema", "source_ids": ["a", "b"]}],
+                    "visuals": [], "briefs": [{"source_id": "a", "summary": "Resumen A", "connections": ["b"]}]}
+        assert payload["settings"]["writing_mode"] == "narrative" and payload["settings"]["study_aids"] == "complete"
+        assert "revista narrativa" in instructions and "Preguntas" in instructions
+        return {"markdown": f"Explicación de {payload['source'][-2]}.", "aids": "### Preguntas\n\n1. ¿Qué?"}
+    def codex(instructions, payload, schema, model, effort, timeout):
+        assert "markdown" in schema["required"] or "chapters" in schema["required"]
+        return answer(instructions, payload, model, effort)
     def post(self, url, **kwargs):
-        payload = kwargs["json"]
+        body = kwargs["json"]
         if provider == "http":
-            payload = json.loads(payload["messages"][1]["content"])
-        assert payload["writing_mode"] == "narrative" and payload["study_aids"] == "complete"
-        assert payload["intent"] == request.intent and payload["preserve_order"] is True
-        answer = expected.model_dump() if provider == "codex-bridge" else {
-            "choices": [{"finish_reason": "stop", "message": {"content": expected.model_dump_json()}}]}
-        return httpx.Response(200, request=httpx.Request("POST", url), json=answer)
-    monkeypatch.setattr("margen.codex_editor.codex_plan", codex)
+            result = answer(body["messages"][0]["content"], json.loads(body["messages"][1]["content"]),
+                            body["model"], body.get("reasoning_effort", ""))
+            result = {"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(result)}}]}
+        else:
+            assert url == "http://fixture/v1/complete"
+            result = answer(body["instructions"], body["input"], body["model"], body["effort"])
+        return httpx.Response(200, request=httpx.Request("POST", url), json=result)
+    monkeypatch.setattr("margen.codex_editor.codex_complete", codex)
     monkeypatch.setattr(httpx.Client, "post", post)
-    assert plan_publication(request) == expected
+    plan = plan_publication(request)
+    assert [a.markdown for a in plan.articles] == ["Explicación de A.", "Explicación de B."]
+    assert calls[0] == ("plan", "planner", "high")
+    assert sorted(calls[1:]) == [("write", "fixture", ""), ("write", "fixture", "")]
 
 
 def test_drafts_round_trip_editorial_settings_and_old_defaults(tmp_path, monkeypatch):

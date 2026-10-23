@@ -8,6 +8,12 @@
 - Las imágenes de las notas se centran como figura sin partirse entre páginas.
 - Idioma de la revista: si la selección está en gallego, se puede elegir castellano o galego para la IA, la portada y el índice.
 - Un primer encabezado de más de 200 caracteres ya no impide crear la edición; se usa el nombre del archivo.
+- Edición con IA por etapas: un plan editorial con un resumen de cada nota y la redacción por partes en paralelo. Las selecciones grandes ya no dependen de una única respuesta.
+- Prompts nuevos por etapa, modo de redacción y apoyos, con reglas de lectura para el Kobo.
+- Cada parte se comprueba contra su fuente: si faltan cifras, comandos o imágenes, se vuelve a pedir una vez.
+- Las partes terminadas se reutilizan al reintentar una edición fallida durante 30 días.
+- Modelo y esfuerzo de razonamiento configurables por etapa (`AI_MODEL_PLAN`, `AI_EFFORT_WRITE`…), además de concurrencia, tamaño de parte y tiempo máximo.
+- El puente de Codex expone `/v1/complete` en lugar de `/v1/plan`: actualiza servidor y puente juntos.
 
 ## 0.8.1 — Errores de generación claros
 

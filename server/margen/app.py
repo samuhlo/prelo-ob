@@ -126,7 +126,7 @@ def _build_publication(request, edition_id, progress):
             if library.storage(data_root())["free_disk_bytes"] < 256_000_000:
                 raise ValueError("Queda poco espacio libre en el disco del servicio. Libera espacio antes de generar.")
         progress("Organizando el contenido y preparando la dirección visual." if request.use_ai or request.artwork == "generated" else "Preparando el cuaderno de estudio.")
-        plan = plan_publication(request)
+        plan = plan_publication(request, data_root() / ".ai-cache", progress)
         illustrations = generate_visuals(request, plan, data_root() / ".art-cache", progress)
         progress("Maquetando la portada, los artículos y el índice.")
         record = build_epub(request, plan, edition_id, staging, illustrations)

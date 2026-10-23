@@ -89,8 +89,28 @@ class VisualBrief(BaseModel):
 
 class EditedArticle(BaseModel):
     source_id: str
-    markdown: str = Field(max_length=200_000)
-    aids: str = Field(max_length=40_000)
+    markdown: str = Field(max_length=300_000)
+    aids: str = Field(max_length=100_000)
+
+
+class NoteBrief(BaseModel):
+    source_id: str
+    summary: str = Field(max_length=800)
+    connections: list[str] = Field(default_factory=list, max_length=10)
+
+
+class Outline(BaseModel):
+    """First editorial stage: structure only, so it stays small for any selection."""
+    title: str = Field(min_length=1, max_length=160)
+    subtitle: str = Field(max_length=240)
+    chapters: list[Chapter] = Field(min_length=1, max_length=100)
+    visuals: list[VisualBrief] = Field(default_factory=list, max_length=201)
+    briefs: list[NoteBrief] = Field(default_factory=list, max_length=100)
+
+
+class WrittenPart(BaseModel):
+    markdown: str = Field(max_length=300_000)
+    aids: str = Field(max_length=100_000)
 
 
 class EditorialPlan(BaseModel):
@@ -113,9 +133,7 @@ class EditorialPlan(BaseModel):
         return self
 
     def verify_visuals(self, request: PublicationRequest):
-        self.verify_sources(request.notes)
-        if request.preserve_order and [i for c in self.chapters for i in c.source_ids] != [n.id for n in request.notes]:
-            raise ValueError("La propuesta no respeta el orden de tu selección. Reintenta la edición.")
+        self.verify_outline(request)
         needs_articles = request.writing_mode != "original" or request.study_aids != "none"
         ids = [a.source_id for a in self.articles]
         if needs_articles:
@@ -130,10 +148,16 @@ class EditorialPlan(BaseModel):
                     raise ValueError("Faltan los apoyos de estudio de una nota.")
                 if request.study_aids == "none" and article.aids:
                     raise ValueError("No se solicitaron apoyos de estudio.")
-            if sum(len(a.markdown) + len(a.aids) for a in self.articles) > 800_000:
+            if sum(len(a.markdown) + len(a.aids) for a in self.articles) > 1_200_000:
                 raise ValueError("La redacción supera el tamaño máximo de una edición.")
         elif self.articles:
             raise ValueError("No se solicitó una adaptación del contenido.")
+        return self
+
+    def verify_outline(self, request: PublicationRequest):
+        self.verify_sources(request.notes)
+        if request.preserve_order and [i for c in self.chapters for i in c.source_ids] != [n.id for n in request.notes]:
+            raise ValueError("La propuesta no respeta el orden de tu selección. Reintenta la edición.")
         if request.style == "retro90" and request.artwork == "generated":
             if sum(v.placement == "cover" for v in self.visuals) != 1:
                 raise ValueError("La revista necesita exactamente una portada temática.")

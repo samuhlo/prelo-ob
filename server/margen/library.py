@@ -187,11 +187,11 @@ def cleanup(root, incoming=0, protected=(), force=False):
         if state["used_bytes"] + incoming <= state["limit_bytes"] and not force:
             return {"removed": [], **state}
         target = min(int(state["limit_bytes"] * .9), state["limit_bytes"] - incoming)
-        cache = Path(root) / ".art-cache"
-        if cache.is_dir():
-            for p in cache.iterdir():
-                if p.is_file():
-                    p.unlink()
+        for cache in (Path(root) / ".art-cache", Path(root) / ".ai-cache"):
+            if cache.is_dir():
+                for p in cache.iterdir():
+                    if p.is_file():
+                        p.unlink()
         removed = []
         for record in reversed(records(root)):
             if storage(root)["used_bytes"] <= target:

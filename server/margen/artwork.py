@@ -14,7 +14,7 @@ import httpx
 from PIL import Image
 from pydantic import BaseModel, Field
 from .models import VisualBrief, Source, EditorialPlan, PublicationRequest
-from .codex_editor import LOCK
+from .codex_editor import SLOTS
 
 ART_DIRECTION = (
     "Original illustration in the visual language of 1994 console-club magazines and "
@@ -70,7 +70,7 @@ def codex_artwork(request: ArtworkRequest):
     executable = os.getenv("CODEX_BIN") or shutil.which("codex")
     if not executable:
         raise ValueError("No se encuentra Codex para generar las ilustraciones.")
-    if not LOCK.acquire(blocking=False):
+    if not SLOTS.acquire(timeout=480):
         raise ValueError("Codex está preparando otra edición. Espera a que termine.")
     try:
         env = dict(os.environ)
@@ -142,7 +142,7 @@ def codex_artwork(request: ArtworkRequest):
     except (subprocess.TimeoutExpired, json.JSONDecodeError, KeyError) as exc:
         raise ValueError("No se pudo completar la ilustración. Puedes reintentar la edición.") from exc
     finally:
-        LOCK.release()
+        SLOTS.release()
 
 
 def generate_visuals(request: PublicationRequest, plan: EditorialPlan, cache_dir: Path, progress=None):

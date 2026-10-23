@@ -308,7 +308,8 @@ export default class Prelo extends Plugin {
     return response;
   }
   async awaitPublication(jobId: string, progress: (message: string) => void): Promise<Publication> {
-    for (let attempt = 0; attempt < 900; attempt++) {
+    // Long editions are written in parts; wait up to an hour before handing off to the library.
+    for (let attempt = 0; attempt < 1800; attempt++) {
       const job = (await this.api(`/v1/jobs/${jobId}`)).json;
       progress(job.message);
       if (job.state === "complete" || job.state === "failed") {
