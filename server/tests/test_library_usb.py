@@ -234,3 +234,18 @@ def test_delete_cannot_interrupt_active_usb_transfer(environment):
     assert result.status_code == 422
     assert (root / record["id"] / record["filename"]).exists()
     assert client.get("/v1/deliveries", headers=AUTH).json()[0]["delivery"] == "transferring"
+
+
+def test_kobo_opaque_text_columns_are_not_decoded(tmp_path):
+    mount = tmp_path / "reader"
+    make_kobo(mount, "margen-test.epub")
+    path = mount / ".kobo/KoboReader.sqlite"
+    with sqlite3.connect(path) as db:
+        for table in ["Bookmark", "content"]:
+            db.execute(f"ALTER TABLE {table} ADD COLUMN ExtraAnnotationData TEXT")
+            db.execute(f"UPDATE {table} SET ExtraAnnotationData=CAST(X'FFFE80' AS TEXT)")
+    before = path.read_bytes()
+    rows = read_kobo(mount)
+    assert len(rows) == 1
+    assert rows[0]["text"] == "Una imagen es una plantilla."
+    assert path.read_bytes() == before

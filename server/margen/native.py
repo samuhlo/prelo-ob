@@ -75,11 +75,17 @@ def read_kobo(mount):
             book_columns = {r["name"] for r in db.execute("PRAGMA table_info(content)")}
             books = {}
             if "ContentID" in book_columns:
-                sql = "SELECT * FROM content" + (" WHERE ContentType=6" if "ContentType" in book_columns else "")
+                selected = [name for name in ["ContentID", "Title", "Attribution"] if name in book_columns]
+                sql = "SELECT " + ", ".join('"' + name + '"' for name in selected) + " FROM content" + (" WHERE ContentType=6" if "ContentType" in book_columns else "")
                 books = {str(r["ContentID"]): dict(r) for r in db.execute(sql)}
             result = []
             string = lambda value: "" if value is None else str(value)
-            for row in db.execute("SELECT * FROM Bookmark"):
+            # Firmware stores opaque bytes in fields such as ExtraAnnotationData,
+            # sometimes declared as TEXT. Do not ask sqlite3 to decode unused fields.
+            selected = [name for name in ["BookmarkID", "VolumeID", "ContentID", "StartContainerPath",
+                        "Text", "Annotation", "DateCreated", "Hidden", "Color", "Colour"] if name in columns]
+            sql = "SELECT " + ", ".join('"' + name + '"' for name in selected) + " FROM Bookmark"
+            for row in db.execute(sql):
                 row = dict(row)
                 if str(row.get("Hidden", "")).lower() in {"true", "1"} or not (row.get("Text") or row.get("Annotation")):
                     continue
