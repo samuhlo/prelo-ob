@@ -1,6 +1,6 @@
 # Cambios
 
-## Sin publicar — Maquetación e idioma
+## 0.9.0 — Ediciones grandes, idioma y maquetación
 
 - Revista 90’s enmarca cada imagen de las notas en un bisel de consola de 16 bits, con su número de figura en el mismo bloque. La imagen original no cambia; las pequeñas se amplían con píxeles nítidos.
 - Las imágenes WebP se incluyen como PNG sin pérdida, porque los lectores no siempre las muestran.
@@ -17,6 +17,7 @@
 - Las partes terminadas se reutilizan al reintentar una edición fallida durante 30 días.
 - Modelo y esfuerzo de razonamiento configurables por etapa (`AI_MODEL_PLAN`, `AI_EFFORT_WRITE`…), además de concurrencia, tamaño de parte y tiempo máximo.
 - El puente de Codex expone `/v1/complete` en lugar de `/v1/plan`: actualiza servidor y puente juntos.
+- La lectura USB solo pide al Kobo las columnas necesarias, para que los datos binarios del firmware no impidan importar subrayados.
 
 ## 0.8.1 — Errores de generación claros
 
