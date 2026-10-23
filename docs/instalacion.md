@@ -85,9 +85,7 @@ Después ejecuta el instalador con `--ai codex`. Prelo mantiene la autenticació
 
 ### Cómo trabaja la IA
 
-Una edición con IA se prepara por etapas. Primero, una llamada propone el plan del número a partir de un resumen de cada nota: título, ruta, encabezados y comienzo. Si la selección es pequeña, recibe las notas completas. Después, si la redacción o los apoyos lo requieren, cada nota se divide en partes de unos 20.000 caracteres, sin cortar bloques de código, y se redacta en llamadas paralelas. Cada parte se comprueba: si faltan cifras, comandos o imágenes de la fuente, se pide una vez más con esa lista. Las etapas se solapan: el plan no espera a las imágenes y cada nota empieza a redactarse en cuanto el plan y sus propias imágenes están listos, compartiendo las `AI_CONCURRENCY` llamadas simultáneas. Las partes terminadas se guardan durante 30 días en la biblioteca, así que reintentar una edición fallida solo repite lo que faltaba.
-
-Con «Reinterpretar esquemas e imágenes», a la vez que el plan se leen las imágenes de las notas, hasta 6 por llamada y con el texto que las rodea. Los esquemas que se leen con seguridad se redibujan en SVG con el estilo de la revista; las tablas y fórmulas pasan a texto; las capturas, fotos y lecturas dudosas conservan la imagen original con una descripción y un pie, y los adornos se retiran. Cada imagen redibujada o convertida queda en el apéndice «Imágenes originales», enlazado desde su pie.
+Una edición con IA se prepara por etapas. Primero, una llamada propone el plan del número a partir de un resumen de cada nota: título, ruta, encabezados y comienzo. Si la selección es pequeña, recibe las notas completas. Después, si la redacción o los apoyos lo requieren, cada nota se divide en partes de unos 20.000 caracteres, sin cortar bloques de código, y se redacta en llamadas paralelas. Cada parte se comprueba: si faltan cifras, comandos o imágenes de la fuente, se pide una vez más con esa lista. Las partes terminadas se guardan durante 30 días en la biblioteca, así que reintentar una edición fallida solo repite lo que faltaba.
 
 Ajustes opcionales del archivo `.env` del servicio (al cambiarlos, vuelve a ejecutar el instalador):
 
@@ -95,9 +93,8 @@ Ajustes opcionales del archivo `.env` del servicio (al cambiarlos, vuelve a ejec
 |---|---|
 | `AI_MODEL_PLAN`, `AI_EFFORT_PLAN` | Modelo y esfuerzo de razonamiento del plan editorial. |
 | `AI_MODEL_WRITE`, `AI_EFFORT_WRITE` | Modelo y esfuerzo de la redacción por partes. |
-| `AI_MODEL_VISION`, `AI_EFFORT_VISION` | Modelo y esfuerzo para leer las imágenes; debe admitir imágenes. |
 | `AI_MODEL`, `AI_EFFORT` | Valores por defecto de ambas etapas. Vacíos, Codex usa su modelo predeterminado. |
-| `AI_CONCURRENCY` | Llamadas simultáneas (2 por defecto). |
+| `AI_CONCURRENCY` | Llamadas simultáneas (4 por defecto; con 4, una edición de 13 notas tardó la mitad que con 2). |
 | `AI_CHUNK_CHARS`, `AI_TIMEOUT` | Tamaño de cada parte y segundos por llamada. |
 
 Con Codex, la configuración recomendada es `AI_MODEL=gpt-6.1-sol`, con `AI_EFFORT_PLAN=high` para el plan y `AI_EFFORT_WRITE=medium` para la redacción.

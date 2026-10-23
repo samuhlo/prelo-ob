@@ -16,8 +16,8 @@ export type StudyAids = keyof typeof studyAids;
 export function adaptsContent(c: { writingMode: WritingMode; studyAids: StudyAids }): boolean {
   return c.writingMode !== "original" || c.studyAids !== "none";
 }
-export function needsEditorialAI(c: { style: string; useAI: boolean; intent?: string; writingMode: WritingMode; studyAids: StudyAids; redrawImages?: boolean }): boolean {
-  return c.style === "retro90" || c.useAI || !!c.intent?.trim() || !!c.redrawImages || adaptsContent(c);
+export function needsEditorialAI(c: { style: string; useAI: boolean; intent?: string; writingMode: WritingMode; studyAids: StudyAids }): boolean {
+  return c.style === "retro90" || c.useAI || !!c.intent?.trim() || adaptsContent(c);
 }
 export const languages = {
   es: { label: "Castellano" },

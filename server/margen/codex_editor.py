@@ -1,5 +1,4 @@
 """Personal local editor using the user's official Codex CLI login."""
-import base64
 import json
 import os
 import shutil
@@ -9,7 +8,7 @@ import threading
 from pathlib import Path
 
 # Chunks of one edition run in parallel; jobs themselves stay serial.
-SLOTS = threading.BoundedSemaphore(max(1, int(os.getenv("AI_CONCURRENCY", "2"))))
+SLOTS = threading.BoundedSemaphore(max(1, int(os.getenv("AI_CONCURRENCY", "4"))))
 FEATURES_OFF = ["shell_tool", "unified_exec", "apps", "plugins", "hooks",
                 "multi_agent", "computer_use", "browser_use", "skill_search"]
 
@@ -34,7 +33,7 @@ def codex_executable():
 
 
 def codex_complete(instructions: str, payload: dict, schema: dict, model: str = "", effort: str = "",
-                   timeout: int = 600, images: list[dict] | None = None) -> dict:
+                   timeout: int = 600) -> dict:
     if not SLOTS.acquire(timeout=timeout):
         raise ValueError("Codex sigue ocupado con otra parte de la edición. Inténtalo de nuevo.")
     try:
@@ -57,12 +56,6 @@ def codex_complete(instructions: str, payload: dict, schema: dict, model: str = 
                 args.extend(["--model", model])
             if effort:
                 args.extend(["-c", f'model_reasoning_effort="{effort}"'])
-            extensions = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
-            for number, image in enumerate(images or [], 1):
-                path = workdir / f"image-{number:02d}.{extensions[image['media_type']]}"
-                path.write_bytes(base64.b64decode(image["data"], validate=True))
-                # One value per flag: --image accepts several and would swallow the final "-".
-                args.append(f"--image={path}")
             args.append("-")
             prompt = instructions + (
                 "\n\nDevuelve solamente el JSON pedido. No uses herramientas, no leas archivos, "

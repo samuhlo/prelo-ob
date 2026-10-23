@@ -26,7 +26,7 @@ KOBO = """# Lectura en el Kobo
 - Copia el código y los comandos literalmente, en bloques ``` con su lenguaje.
 - Si un bloque sin lenguaje es en realidad una tabla o un esquema de texto pegado de un PDF, conviértelo en una tabla Markdown o una lista, con los encabezados en el idioma de la revista y los datos intactos.
 - Solo Markdown: sin HTML, Mermaid, imágenes remotas ni emojis.
-- Mantén cada imagen ![...](margen-asset:ID) y cada esquema redibujado ![...](margen-figure:ID) como párrafo propio, junto al texto que lo explica, seguido de su pie en cursiva y del enlace margen-original si lo tiene. Si el texto permite describir mejor una imagen, mejora su texto alternativo con una descripción breve y concreta.
+- Mantén cada imagen ![...](margen-asset:ID) como párrafo propio, junto al texto que la explica. Si ese texto permite describirla, mejora su texto alternativo con una descripción breve y concreta.
 - Puedes enlazar otros artículos de la revista con [texto](margen-note:ID) cuando la relación esté en el plan."""
 
 MODES = {
@@ -95,28 +95,6 @@ Recibes el plan del número, el artículo al que pertenece el fragmento y el tex
 - Cada artículo desarrolla su propia nota; las demás notas solo se mencionan o enlazan.
 - Escribe como un artículo, no como un comentario sobre apuntes: no digas «la nota», «el texto», «el fragmento», «esta parte» ni «según la fuente». Si algo es una laguna de las fuentes, dilo de forma natural («aquí no se detalla…»).
 - Si missing existe, en tu respuesta anterior faltaban esos elementos de la fuente: incorpóralos donde corresponda."""
-
-
-VISION_TASK = """# Tarea: leer las imágenes de unos apuntes
-Recibes imágenes adjuntas, en el mismo orden que la lista images, de unos apuntes técnicos. Suelen ser recortes de un PDF antiguo, con poca resolución. Cada entrada incluye el texto que rodea a la imagen en la nota: úsalo para interpretarla, nunca para inventar lo que la imagen no muestra.
-Devuelve en images una lectura por imagen, con su asset_id:
-- kind: diagram (cajas y flechas, redes, topologías, jerarquías, capas, intercambios de mensajes), table (tabla, formato de cabecera o de trama), formula, screenshot (captura de un programa o terminal), photo, decorative (logotipo, icono o adorno sin información) o unreadable.
-- description: qué muestra y qué hay que mirar, en 1–3 frases. Será el texto alternativo.
-- caption: un pie breve (menos de 160 caracteres) que diga qué enseña la imagen.
-- confidence: high si lees todos los textos y relaciones; medium si alguno es dudoso pero la estructura es clara; low en otro caso.
-- table_markdown: solo para table y formula, el contenido completo como tabla Markdown (o la fórmula en texto), con los encabezados en el idioma de la revista y los datos intactos. En otro caso, cadena vacía.
-- diagram: solo para diagram; en otro caso layout flow_down con nodes y edges vacíos.
-  - layout: flow_down (procesos, jerarquías, topologías), flow_right (secuencia corta de 2 a 4 pasos), layers (pila de capas o niveles, de arriba abajo, en nodes), sequence (mensajes entre 2 a 5 participantes a lo largo del tiempo: nodes son los participantes y edges los mensajes en orden).
-  - nodes: como máximo 16, con id corto, label breve (menos de 40 caracteres) en el idioma de la revista, y kind: box, device (equipo, router, switch, servidor), network (red, Internet, segmento), storage, actor (persona o participante) o note (aclaración).
-  - edges: source, target, label breve o vacío (puerto, protocolo, dirección) y style: arrow (con sentido), line (conexión sin sentido) o double (en ambos sentidos).
-  - Si la imagen muestra pasos numerados de un intercambio entre equipos (petición, traducción, respuesta…), usa sequence con los equipos como participantes y un mensaje por paso, con su número y los datos que cambian.
-  - Si los elementos están agrupados (VLAN, subredes, zonas), añade el grupo a la etiqueta de cada elemento («PC1 · VLAN 2»).
-  - Los datos propios de un equipo (su IP, su MAC, su puerto) van en la etiqueta de ese equipo; las etiquetas de las conexiones solo describen lo que circula o la relación.
-  - Reproduce lo que muestra la imagen sin añadir ni quitar elementos; copia direcciones, puertos y valores tal cual. Si el dibujo no se puede expresar así sin perder información, usa kind screenshot o photo y descríbelo."""
-
-
-def vision_instructions(request: PublicationRequest) -> str:
-    return "\n\n".join([ROLE, LANGUAGE[request.language], VISION_TASK])
 
 
 def outline_instructions(request: PublicationRequest) -> str:

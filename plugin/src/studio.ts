@@ -15,11 +15,10 @@ export type Composer = {
   preserveOrder: boolean; writingMode: WritingMode; studyAids: StudyAids;
   // Unset means: follow the language detected in the selected notes.
   language?: Language;
-  redrawImages: boolean;
   useAI: boolean; sendToKobo: boolean; step: 1 | 2; draftId?: string;
 };
 export const emptyComposer = (): Composer => ({
-  paths: [], title: "", intent: "", preserveOrder: false, style: "study", writingMode: "original", studyAids: "none", language: undefined, redrawImages: false, useAI: false, sendToKobo: true, step: 1,
+  paths: [], title: "", intent: "", preserveOrder: false, style: "study", writingMode: "original", studyAids: "none", language: undefined, useAI: false, sendToKobo: true, step: 1,
 });
 type Library = {
   version?: string;
@@ -394,15 +393,6 @@ export class StudioView extends ItemView {
     const orderCopy = order.createDiv();
     orderCopy.createEl("strong", { text: "Respetar exactamente el orden de mi selección" });
     orderCopy.createEl("small", { text: "Coloca los temas y sus exámenes en Revisar selección. Este orden queda bloqueado, incluso si las instrucciones extra piden otro." });
-    const images = this.imageCount(c.paths);
-    if (images) {
-      const row = fields.createEl("label", { cls: "margen-toggle-row" });
-      const checkbox = row.createEl("input", { type: "checkbox" }); checkbox.checked = c.redrawImages;
-      checkbox.onchange = () => { c.redrawImages = checkbox.checked; void this.plugin.save(); this.updateCreateButton(); };
-      const copy = row.createDiv();
-      copy.createEl("strong", { text: "Reinterpretar esquemas e imágenes" });
-      copy.createEl("small", { text: `La IA lee ${images === 1 ? "la imagen" : `las ${images} imágenes`} de tus notas: redibuja los esquemas con el estilo de la revista, convierte las tablas en texto y describe el resto. Las originales quedan en un apéndice.` });
-    }
     if (c.style === "study" && !adaptsContent(c)) {
       const row = fields.createEl("label", { cls: "margen-toggle-row" });
       const checkbox = row.createEl("input", { type: "checkbox" }); checkbox.checked = c.useAI;
@@ -414,21 +404,11 @@ export class StudioView extends ItemView {
     send.onchange = () => { c.sendToKobo = send.checked; void this.plugin.save(); };
     const copy = delivery.createDiv(); copy.createEl("strong", { text: "Prepararla para el Kobo" }); copy.createEl("small", { text: "Se enviará cuando conectes el lector al Mac." });
     const actions = this.page!.createDiv({ cls: "margen-create-footer" });
-    actions.createSpan({ cls: "margen-create-summary", text: `${c.paths.length} notas · ${adaptsContent(c) ? `${writingModes[c.writingMode].label} · ${studyAids[c.studyAids].label} · IA` : c.style === "retro90" ? `Portada + ${c.paths.length} carátulas con IA` : c.intent.trim() ? "Instrucciones extra con IA" : c.useAI ? "Organización con IA" : c.redrawImages ? "Imágenes con IA" : "Sin IA"}` });
+    actions.createSpan({ cls: "margen-create-summary", text: `${c.paths.length} notas · ${adaptsContent(c) ? `${writingModes[c.writingMode].label} · ${studyAids[c.studyAids].label} · IA` : c.style === "retro90" ? `Portada + ${c.paths.length} carátulas con IA` : c.intent.trim() ? "Instrucciones extra con IA" : c.useAI ? "Organización con IA" : "Sin IA"}` });
     button(actions, "Guardar borrador", () => void this.saveDraft(), "bookmark");
     button(actions, "Crear mi revista", () => void this.create(), "sparkles", "margen-primary margen-create-button");
     this.page!.createEl("p", { cls: "margen-create-hint margen-hint" });
     this.updateCreateButton();
-  }
-  private imageCount(paths: string[]): number {
-    const images = new Set<string>();
-    for (const path of paths) {
-      const file = this.app.vault.getAbstractFileByPath(path);
-      if (!(file instanceof TFile)) continue;
-      for (const embed of this.app.metadataCache.getFileCache(file)?.embeds ?? [])
-        if (/\.(png|jpe?g|gif|webp)$/i.test(embed.link.split("#")[0])) images.add(embed.link);
-    }
-    return images.size;
   }
   private language(): Language {
     return this.plugin.state.composer.language ?? (this.detected.galician ? "gl" : "es");
@@ -451,21 +431,20 @@ export class StudioView extends ItemView {
     const button = this.contentEl.querySelector<HTMLButtonElement>(".margen-create-button");
     if (button) button.disabled = blocked;
     const summary = this.contentEl.querySelector<HTMLElement>(".margen-create-summary");
-    if (summary) summary.setText(this.error ? "Sin conexión al Mac" : `${c.paths.length} notas · ${adaptsContent(c) ? `${writingModes[c.writingMode].label} · ${studyAids[c.studyAids].label} · IA` : c.style === "retro90" ? `Portada + ${c.paths.length} carátulas con IA` : c.intent.trim() ? "Instrucciones extra con IA" : c.useAI ? "Organización con IA" : c.redrawImages ? "Imágenes con IA" : "Sin IA"}`);
+    if (summary) summary.setText(this.error ? "Sin conexión al Mac" : `${c.paths.length} notas · ${adaptsContent(c) ? `${writingModes[c.writingMode].label} · ${studyAids[c.studyAids].label} · IA` : c.style === "retro90" ? `Portada + ${c.paths.length} carátulas con IA` : c.intent.trim() ? "Instrucciones extra con IA" : c.useAI ? "Organización con IA" : "Sin IA"}`);
     const hint = this.contentEl.querySelector<HTMLElement>(".margen-create-hint");
     if (hint) hint.setText(this.error ? this.error : needsAI && !this.aiAvailable ? "La IA del Mac no está disponible. Puedes usar Revista de estudio sin IA."
       : c.intent.trim() ? "Se aplicarán tus instrucciones extra con IA, respetando la redacción elegida y el orden si lo has bloqueado."
       : adaptsContent(c) ? "La IA preparará la redacción y los apoyos elegidos. Revisa la adaptación antes de estudiar; puede tardar unos minutos."
       : c.style === "retro90" ? "Se creará una portada y una carátula retro por nota. Cuantas más notas, mayor tiempo y consumo de IA."
-      : c.useAI ? "La IA organizará las secciones conservando el texto de tus notas."
-      : c.redrawImages ? "La IA reinterpretará las imágenes conservando el texto de tus notas." : "Se conservará el orden que has elegido, sin llamadas a la IA.");
+      : c.useAI ? "La IA organizará las secciones conservando el texto de tus notas." : "Se conservará el orden que has elegido, sin llamadas a la IA.");
   }
   private async saveDraft() {
     const c = this.plugin.state.composer;
     if (!c.paths.length) return;
     await this.plugin.run(async () => {
       const id = c.draftId || randomUUID();
-      await this.plugin.api("/v1/drafts", { id, title: c.title, intent: c.intent, preserve_order: c.preserveOrder, style: c.style, paths: c.paths, writing_mode: c.writingMode, study_aids: c.studyAids, language: c.language ?? null, images: c.redrawImages ? "redraw" : "keep", use_ai: c.useAI, send_to_kobo: c.sendToKobo });
+      await this.plugin.api("/v1/drafts", { id, title: c.title, intent: c.intent, preserve_order: c.preserveOrder, style: c.style, paths: c.paths, writing_mode: c.writingMode, study_aids: c.studyAids, language: c.language ?? null, use_ai: c.useAI, send_to_kobo: c.sendToKobo });
       c.draftId = id; await this.plugin.save();
       new Notice("Borrador guardado en tu biblioteca. Puedes continuarlo desde otro equipo.");
       void this.refresh();
@@ -483,7 +462,7 @@ export class StudioView extends ItemView {
         const prepared = await this.plugin.prepare(chosen);
         const result = await this.plugin.createPublication({
           title: c.title, intent: c.intent, preserve_order: c.preserveOrder, style: c.style, use_ai: needsEditorialAI(c),
-          writing_mode: c.writingMode, study_aids: c.studyAids, language, images: c.redrawImages ? "redraw" : "keep",
+          writing_mode: c.writingMode, study_aids: c.studyAids, language,
           artwork: c.style === "retro90" ? "generated" : "none", send_to_kobo: c.sendToKobo, ...prepared,
         }, message => { this.progress = message; this.renderProgress(); });
         this.created = result;
@@ -524,7 +503,7 @@ export class StudioView extends ItemView {
         setIcon(row.createSpan(), "bookmark");
         const text = row.createDiv(); text.createEl("strong", { text: draft.title || "Una lectura por preparar" }); text.createEl("small", { text: `${draft.paths.length} notas · ${labelStyle(draft.style)}` });
         button(row, "Continuar", () => {
-          this.plugin.changeComposer({ ...emptyComposer(), paths: draft.paths, title: draft.title, intent: draft.intent, preserveOrder: draft.preserve_order ?? false, style: draft.style as "study" | "retro90", useAI: draft.use_ai ?? draft.style === "retro90", writingMode: draft.writing_mode ?? "original", studyAids: draft.study_aids ?? "none", language: draft.language ?? undefined, redrawImages: draft.images === "redraw", sendToKobo: draft.send_to_kobo ?? true, draftId: draft.id }, true);
+          this.plugin.changeComposer({ ...emptyComposer(), paths: draft.paths, title: draft.title, intent: draft.intent, preserveOrder: draft.preserve_order ?? false, style: draft.style as "study" | "retro90", useAI: draft.use_ai ?? draft.style === "retro90", writingMode: draft.writing_mode ?? "original", studyAids: draft.study_aids ?? "none", language: draft.language ?? undefined, sendToKobo: draft.send_to_kobo ?? true, draftId: draft.id }, true);
           this.selectTab("compose");
         }, "arrow-right");
         iconButton(row, "trash-2", "Descartar borrador", () => void this.plugin.run(async () => {

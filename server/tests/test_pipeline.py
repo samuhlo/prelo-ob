@@ -310,3 +310,49 @@ def test_invalid_field_returns_explanation_without_input(client):
     assert response.status_code == 422
     assert "title" in response.json()["detail"] and "160" in response.json()["detail"]
     assert "PRIVATE_TITLE" not in response.text
+
+
+def test_retro_frames_note_images_without_changing_them(tmp_path):
+    from PIL import Image
+    from margen.epub import build_epub
+    source = Image.new("RGB", (120, 40), "white")
+    for x in range(0, 120, 7):
+        source.putpixel((x, x % 40), (200, 30, 30))
+    stream = io.BytesIO()
+    source.save(stream, format="WEBP", lossless=True)
+    big = io.BytesIO()
+    Image.new("RGB", (900, 300), "blue").save(big, format="JPEG")
+    markdown = ("Texto.\n\n![Esquema o captura](margen-asset:small)\n\n"
+                "![Router con dos interfaces](margen-asset:large)")
+    notes = [{"id": "a", "title": "Redes", "path": "a.md", "markdown": markdown}]
+    assets = [{"id": "small", "media_type": "image/webp", "data": base64.b64encode(stream.getvalue()).decode()},
+              {"id": "large", "media_type": "image/jpeg", "data": base64.b64encode(big.getvalue()).decode()}]
+    request, plan, art = retro_fixture()
+    request = PublicationRequest(notes=notes, assets=assets, style="retro90", artwork="generated")
+    plan = EditorialPlan(title="Redes", subtitle="", chapters=[{"title": "Uno", "source_ids": ["a"]}],
+                         visuals=[v.model_copy(update={"source_ids": ["a"]}) for v in (plan.visuals[0], plan.visuals[2])])
+    illustrations = [{**v.model_dump(), "data": art, "media_type": "image/jpeg"} for v in plan.visuals]
+    record = build_epub(request, plan, str(uuid.uuid4()), tmp_path / "retro", illustrations)
+    with zipfile.ZipFile(tmp_path / "retro" / record["filename"]) as book:
+        from margen.epub import frame_sizes
+        framed = Image.open(io.BytesIO(book.read("EPUB/assets/small.png")))
+        edge = sum(frame_sizes(480))  # whole factor 4, at most 4
+        picture = framed.crop((edge, edge, edge + 480, edge + 160))
+        # The frame surrounds the picture; nearest neighbour only repeats its pixels.
+        assert framed.size == (480 + 2 * edge, 160 + 2 * edge)
+        assert picture.resize((120, 40), Image.NEAREST).tobytes() == source.tobytes()
+        large = Image.open(io.BytesIO(book.read("EPUB/assets/large.jpg")))
+        assert large.size == (900 + 2 * sum(frame_sizes(900)), 300 + 2 * sum(frame_sizes(900)))
+        article = book.read("EPUB/text/n_a.xhtml").decode()
+        figures = etree.fromstring(article.encode()).xpath("//*[@class='retro-figure']")
+        assert len(figures) == 2 and all(f[0].tag.endswith("img") and f[1].tag.endswith("br") for f in figures)
+        assert "FIG. 01</span></p>" in article and "FIG. 02</span> · Router con dos interfaces" in article
+        assert 'class="figure"' not in article
+    study = build_epub(PublicationRequest(notes=notes, assets=assets), plan_publication(PublicationRequest(notes=notes, assets=assets)),
+                       str(uuid.uuid4()), tmp_path / "study")
+    with zipfile.ZipFile(tmp_path / "study" / study["filename"]) as book:
+        # WebP becomes PNG for e-readers, pixel for pixel.
+        assert Image.open(io.BytesIO(book.read("EPUB/assets/small.png"))).tobytes() == source.tobytes()
+        assert "EPUB/assets/small.webp" not in book.namelist()
+        article = book.read(f"EPUB/text/n_a.xhtml").decode()
+        assert 'class="figure"' in article and "retro-figure" not in article

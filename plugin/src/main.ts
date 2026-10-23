@@ -35,7 +35,7 @@ type PublicationDetail = Publication & {
 };
 type Source = { id: string; path: string; title: string; markdown: string; original_sha256: string };
 type Asset = { id: string; media_type: string; data: string };
-export type Draft = { id: string; title: string; intent: string; preserve_order?: boolean; style: string; paths: string[]; writing_mode?: WritingMode; study_aids?: StudyAids; language?: Language | null; images?: "keep" | "redraw"; use_ai?: boolean; send_to_kobo?: boolean };
+export type Draft = { id: string; title: string; intent: string; preserve_order?: boolean; style: string; paths: string[]; writing_mode?: WritingMode; study_aids?: StudyAids; language?: Language | null; use_ai?: boolean; send_to_kobo?: boolean };
 const DEFAULTS: Settings = {
   checkUpdates: true, serverUrl: "http://127.0.0.1:8765", token: "", koboPath: "/Volumes/KOBOeReader",
   outputFolder: "Prelo/Publicaciones", highlightsFolder: "Prelo/Subrayados",

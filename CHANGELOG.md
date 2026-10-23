@@ -2,15 +2,15 @@
 
 ## Sin publicar — Maquetación e idioma
 
-- Opción «Reinterpretar esquemas e imágenes»: la IA lee cada imagen con su contexto. Los esquemas se redibujan en SVG con el estilo de la revista (flujos, capas e intercambios de mensajes), las tablas pasan a texto y el resto recibe descripción y pie. Las lecturas dudosas conservan la imagen original.
-- Apéndice «Imágenes originales» enlazado desde cada imagen redibujada o convertida.
+- Revista 90’s enmarca cada imagen de las notas en un bisel de consola de 16 bits, con su número de figura en el mismo bloque. La imagen original no cambia; las pequeñas se amplían con píxeles nítidos.
+- Las imágenes WebP se incluyen como PNG sin pérdida, porque los lectores no siempre las muestran.
 - Las notas cortas consecutivas comparten página; cada una conserva su ancla, su procedencia y la recuperación de subrayados.
 - Se retira el pie «Fuente: …» al final de cada artículo, que podía quedar solo en una página.
 - Revista 90’s abre cada artículo con una página compuesta de ilustración, sección y título; la leyenda encabeza el texto.
 - Las imágenes de las notas se centran como figura sin partirse entre páginas.
 - Idioma de la revista: si la selección está en gallego, se puede elegir castellano o galego para la IA, la portada y el índice.
 - Un primer encabezado de más de 200 caracteres ya no impide crear la edición; se usa el nombre del archivo.
-- Edición con IA por etapas: un plan editorial con un resumen de cada nota y la redacción por partes en paralelo. Las selecciones grandes ya no dependen de una única respuesta.
+- Edición con IA por etapas: un plan editorial con un resumen de cada nota y la redacción por partes, cuatro a la vez por defecto. Las selecciones grandes ya no dependen de una única respuesta.
 - Prompts nuevos por etapa, modo de redacción y apoyos, con reglas de lectura para el Kobo.
 - Cada parte se comprueba contra su fuente: si faltan cifras, comandos o imágenes, se vuelve a pedir una vez.
 - Las partes terminadas se reutilizan al reintentar una edición fallida durante 30 días.

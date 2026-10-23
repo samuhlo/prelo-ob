@@ -5,14 +5,12 @@ import os
 import re
 import threading
 import time
-from collections import defaultdict
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import httpx
 from pydantic import BaseModel, ValidationError
-from .models import EditorialPlan, Chapter, PublicationRequest, Outline, WrittenPart, EditedArticle, ImageReadings
-from .prompts import outline_instructions, write_instructions, vision_instructions
-from .figures import apply_figures, image_batches, read_batch
+from .models import EditorialPlan, Chapter, PublicationRequest, Outline, WrittenPart, EditedArticle
+from .prompts import outline_instructions, write_instructions
 
 DEFAULT_SUBTITLE = {"es": "Una selección de tu biblioteca personal", "gl": "Unha selección da túa biblioteca persoal"}
 # Below this total the planner reads every note in full; above it, a digest of each.
@@ -51,21 +49,19 @@ def timeout():
     return int(os.getenv("AI_TIMEOUT", "600"))
 
 
-def complete(stage: str, instructions: str, payload: dict, schema: dict, images: list[dict] | None = None) -> dict:
-    """images: [{"media_type": "image/png", "data": base64}] attached in order."""
+def complete(stage: str, instructions: str, payload: dict, schema: dict) -> dict:
     model, effort = stage_settings(stage)
     provider = os.getenv("AI_PROVIDER")
-    images = images or []
     if provider == "codex-cli":
         from .codex_editor import codex_complete
-        return codex_complete(instructions, payload, schema, model, effort, timeout(), images)
+        return codex_complete(instructions, payload, schema, model, effort, timeout())
     if provider == "codex-bridge":
         try:
             with httpx.Client(timeout=timeout() + 30, follow_redirects=False) as client:
                 response = client.post(os.environ["CODEX_BRIDGE_URL"].rstrip("/") + "/v1/complete",
                     headers={"Authorization": "Bearer " + os.environ["MARGEN_TOKEN"]},
                     json={"instructions": instructions, "input": payload, "output_schema": schema,
-                          "model": model, "effort": effort, "images": images})
+                          "model": model, "effort": effort})
                 if response.status_code == 404:
                     raise ValueError("El puente de Codex del Mac es de una versión anterior. Actualiza Prelo en el Mac.")
                 if response.status_code == 422:
@@ -77,9 +73,7 @@ def complete(stage: str, instructions: str, payload: dict, schema: dict, images:
     body = {
         "model": model,
         "messages": [{"role": "system", "content": instructions},
-                     {"role": "user", "content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}] + [
-                         {"type": "image_url", "image_url": {"url": f"data:{i['media_type']};base64,{i['data']}"}}
-                         for i in images] if images else json.dumps(payload, ensure_ascii=False)}],
+                     {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
         "response_format": {"type": "json_schema", "json_schema": {
             "name": stage, "strict": True, "schema": schema,
         }},
@@ -116,14 +110,13 @@ class Cache:
                 if path.stat().st_mtime < limit:
                     path.unlink(missing_ok=True)
 
-    def call(self, stage, instructions, payload, schema, images=None):
-        # Images are identified in the payload by their content hash; their bytes stay out of the key.
+    def call(self, stage, instructions, payload, schema):
         key = hashlib.sha256(json.dumps([stage_settings(stage), instructions, payload, schema],
                                         ensure_ascii=False, sort_keys=True).encode()).hexdigest()
         path = self.directory / f"{key}.json" if self.directory else None
         if path and path.exists():
             return json.loads(path.read_text())
-        result = complete(stage, instructions, payload, schema, images)
+        result = complete(stage, instructions, payload, schema)
         if path:
             temporary = path.with_suffix(".tmp")
             temporary.write_text(json.dumps(result, ensure_ascii=False))
@@ -196,14 +189,14 @@ def split_markdown(text: str, limit: int) -> list[str]:
 def digest(note, full: bool):
     text = body_of(note.markdown)
     entry = {"id": note.id, "title": note.title, "path": note.path, "characters": len(text),
-             "images": len(re.findall(r"margen-(?:asset|figure):", text))}
+             "images": text.count("margen-asset:")}
     if full:
         return {**entry, "markdown": text}
     headings = [b.strip() for b in blocks(text) if re.match(r"#{1,3} ", b.strip()) and "\n" not in b.strip()]
     return {**entry, "headings": headings[:40], "beginning": text[:1500]}
 
 
-TOKEN = re.compile(r"margen-(?:asset|figure):[\w-]+|\d[\d.:/]*\d|`[^`\n]{2,80}`")
+TOKEN = re.compile(r"margen-asset:[\w-]+|\d[\d.:/]*\d|`[^`\n]{2,80}`")
 
 
 def required_tokens(source: str) -> set[str]:
@@ -315,28 +308,27 @@ class Writer:
         return best
 
 
+def concurrency():
+    # Four parallel calls halved a 13-note edition without slowing each call.
+    return max(1, int(os.getenv("AI_CONCURRENCY", "4")))
+
+
 def chunk_limit():
     return int(os.getenv("AI_CHUNK_CHARS", "20000"))
 
 
 class Status:
-    """One progress line for stages that now overlap."""
+    """Progress of the parts written in parallel."""
 
-    def __init__(self, progress, images: int, parts: int):
+    def __init__(self, progress, parts: int):
         self.progress, self.lock = progress, threading.Lock()
-        self.images, self.images_done, self.parts, self.parts_done = images, 0, parts, 0
+        self.parts, self.done = parts, 0
 
-    def update(self, images=0, parts=0, more_parts=0):
+    def update(self, parts=0, more_parts=0):
         with self.lock:
-            self.images_done += images
-            self.parts_done += parts
+            self.done += parts
             self.parts += more_parts
-            reading = f"Leyendo imágenes: {self.images_done} de {self.images}" if self.images else ""
-            writing = f"redactando: {self.parts_done} de {self.parts} partes listas" if self.parts else ""
-            if reading and writing:
-                self.progress(f"{reading} · {writing}.")
-            elif reading or writing:
-                self.progress((reading or writing[0].upper() + writing[1:]) + ".")
+            self.progress(f"Redactando: {self.done} de {self.parts} partes listas.")
 
 
 def plan_publication(request: PublicationRequest, cache_dir: Path | None = None, progress=lambda _: None) -> EditorialPlan:
@@ -349,68 +341,35 @@ def plan_publication(request: PublicationRequest, cache_dir: Path | None = None,
     if not ai_available():
         raise ValueError("Activa un proveedor de IA en el servidor para usar esta opción.")
     cache = Cache(cache_dir)
-    writes = request.writing_mode != "original" or request.study_aids != "none"
-    batches = image_batches(request) if request.images == "redraw" and request.assets else []
-    vision = vision_instructions(request), strict_schema(ImageReadings)
-    estimate = {n.id: len(split_markdown(body_of(n.markdown), chunk_limit())) if writes else 0 for n in request.notes}
-    status = Status(progress, sum(len(items) for _, items in batches), sum(estimate.values()))
     progress("Preparando el plan editorial del número.")
-    # One pool for every stage: the plan does not need the images, and each note is
-    # written as soon as the plan and its own images are ready.
-    pool = ThreadPoolExecutor(max_workers=max(1, int(os.getenv("AI_CONCURRENCY", "2"))), thread_name_prefix="margen-ai")
-    try:
-        planned = pool.submit(make_outline, request, cache)
-        reading = defaultdict(list)
-        for batch in batches:
-            future = pool.submit(read_batch, request, batch, cache, *vision)
-            future.add_done_callback(lambda f, n=len(batch[1]): status.update(images=n))
-            reading[batch[0].id].append(future)
-        outline = planned.result()
-        writer = Writer(request, outline, cache) if writes else None
+    outline = make_outline(request, cache)
+    plan = EditorialPlan(**outline.model_dump(exclude={"briefs"}))
+    if request.title.strip():
+        plan.title = request.title.strip()
+    if request.writing_mode != "original" or request.study_aids != "none":
+        writer = Writer(request, outline, cache)
         order = [i for c in outline.chapters for i in c.source_ids]
         notes = {n.id: n for n in request.notes}
-        figures, failures, written = {}, [], {}
-        waiting = set(order)
-        while waiting:
-            ready = [i for i in order if i in waiting and all(f.done() for f in reading[i])]
-            if not ready:
-                wait([f for i in waiting for f in reading[i] if not f.done()], return_when=FIRST_COMPLETED)
-                continue
-            for source_id in ready:
-                waiting.discard(source_id)
-                own = []
-                for future in reading[source_id]:
-                    found, error = future.result()
-                    own += found
-                    if error:
-                        failures.append(error)
-                figures.update({f.asset_id: f for f in own})
-                if writer:
-                    note = notes[source_id]
-                    note = note.model_copy(update={"markdown": apply_figures(note.markdown, own, request.language)})
-                    tasks = writer.tasks(note)
-                    status.update(more_parts=len(tasks) - estimate[source_id])
-                    written[source_id] = [(task, pool.submit(writer.run, task)) for task in tasks]
-                    for _, future in written[source_id]:
-                        future.add_done_callback(lambda f: f.exception() or status.update(parts=1))
-        if batches and len(failures) == len(batches):
-            # Nothing could be read: a provider problem, not a doubtful image.
-            raise failures[0]
-        plan = EditorialPlan(**outline.model_dump(exclude={"briefs"}), figures=list(figures.values()))
-        if request.title.strip():
-            plan.title = request.title.strip()
-        if writer:
+        tasks = {i: writer.tasks(notes[i]) for i in order}
+        status = Status(progress, sum(map(len, tasks.values())))
+        status.update()
+        pool = ThreadPoolExecutor(max_workers=concurrency(), thread_name_prefix="margen-ai")
+        try:
+            written = {i: [pool.submit(writer.run, task) for task in tasks[i]] for i in order}
+            for futures in written.values():
+                for future in futures:
+                    future.add_done_callback(lambda f: f.exception() or status.update(parts=1))
             articles = []
             for source_id in order:
-                parts = [future.result() for _, future in written[source_id]]
+                parts = [future.result() for future in written[source_id]]
                 articles.append(EditedArticle(
                     source_id=source_id,
                     markdown="\n\n".join(p.markdown.strip() for p in parts if p.markdown.strip()),
                     aids="\n\n".join(p.aids.strip() for p in parts if p.aids.strip())))
-            plan.articles = articles
-    except BaseException:
-        pool.shutdown(wait=True, cancel_futures=True)
-        raise
-    pool.shutdown(wait=True)
+        except BaseException:
+            pool.shutdown(wait=True, cancel_futures=True)
+            raise
+        pool.shutdown(wait=True)
+        plan.articles = articles
     # Validate the complete editorial result before rendering any edition.
     return plan.verify_visuals(request)

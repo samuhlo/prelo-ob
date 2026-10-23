@@ -11,11 +11,6 @@ app = FastAPI(title="Prelo · Codex local", docs_url=None, redoc_url=None, opena
 app.middleware("http")(limit_body)
 
 
-class Attachment(BaseModel):
-    media_type: Literal["image/png", "image/jpeg", "image/webp"]
-    data: str = Field(max_length=8_000_000)
-
-
 class Completion(BaseModel):
     instructions: str = Field(min_length=1, max_length=60_000)
     input: dict
@@ -23,7 +18,6 @@ class Completion(BaseModel):
     # Both reach Codex as arguments: keep them to plain identifiers.
     model: str = Field(default="", max_length=80, pattern=r"^([A-Za-z0-9][A-Za-z0-9._:-]*)?$")
     effort: Literal["", "minimal", "low", "medium", "high", "xhigh", "max"] = ""
-    images: list[Attachment] = Field(default_factory=list, max_length=8)
 
 
 @app.get("/health")
@@ -35,7 +29,7 @@ def health():
 def complete(request: Completion):
     try:
         return codex_complete(request.instructions, request.input, request.output_schema,
-                              request.model, request.effort, timeout(), [i.model_dump() for i in request.images])
+                              request.model, request.effort, timeout())
     except ValueError as exc:
         raise HTTPException(422, str(exc))
 
