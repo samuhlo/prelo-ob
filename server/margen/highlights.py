@@ -18,8 +18,9 @@ def resolve(highlight: Highlight, publications: dict):
         if len(candidates) == 1:
             source, method = candidates[0], "chapter"
         elif highlight.text.strip():
+            # Short notes can share a file: search the quote among them first.
             quote = normalize(highlight.text)
-            candidates = [s for s in publication["sources"] if quote in s["text"]]
+            candidates = [s for s in candidates or publication["sources"] if quote in s["text"]]
             if len(candidates) == 1:
                 source, method = candidates[0], "exact_text"
         if not source:

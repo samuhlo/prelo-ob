@@ -50,7 +50,8 @@ def test_modes_render_complete_valid_epubs_and_keep_provenance(tmp_path, mode, a
         ids = tree.xpath("//@id")
         assert len(ids) == len(set(ids))
         if mode != "original":
-            assert 'href="n_b.xhtml"' in content
+            # Both notes are short, so they share a file and link by anchor.
+            assert 'href="n_a.xhtml#n_b"' in content
     quote = "Explicación a." if mode != "original" else "Texto original A."
     highlight = resolve(Highlight(id="one", volume_id=record["filename"], text=quote), {EDITION: record})
     assert highlight["source"]["path"] == "Primero.md"
@@ -156,5 +157,48 @@ def test_locked_order_rejects_reordering_and_keeps_epub_spine(tmp_path):
     record = build_epub(request, plan, EDITION, tmp_path)
     with zipfile.ZipFile(tmp_path / record["filename"]) as book:
         package = etree.fromstring(book.read("EPUB/package.opf"))
-        assert package.xpath("//*[local-name()='spine']/*/@idref") == ["cover", "nav", "n_a", "n_b"]
+        assert package.xpath("//*[local-name()='spine']/*/@idref") == ["cover", "nav", "n_a"]
+        article = etree.fromstring(book.read("EPUB/text/n_a.xhtml"))
+        assert article.xpath("//*[@class='article']/@id") == ["n_a", "n_b"]
     assert record["preserve_order"] is True
+
+
+def test_long_notes_keep_their_own_file_and_short_ones_share(tmp_path):
+    long_text = "Párrafo extenso sobre subredes. " * 80
+    notes = [{"id": "a", "title": "Largo", "path": "Largo.md", "markdown": long_text},
+             {"id": "b", "title": "Breve uno", "path": "B.md", "markdown": "Idea breve B."},
+             {"id": "c", "title": "Breve dos", "path": "C.md", "markdown": "Idea breve C."},
+             {"id": "d", "title": "Con imagen", "path": "D.md", "markdown": "![Esquema](margen-asset:missing)"}]
+    request = PublicationRequest(notes=notes)
+    plan = EditorialPlan(title="Lectura", subtitle="", chapters=[{"title": "Uno", "source_ids": ["a", "b"]},
+                                                                 {"title": "Dos", "source_ids": ["c", "d"]}])
+    record = build_epub(request, plan, EDITION, tmp_path)
+    assert [s["href"] for s in record["sources"]] == ["text/n_a.xhtml", "text/n_b.xhtml", "text/n_b.xhtml", "text/n_d.xhtml"]
+    with zipfile.ZipFile(tmp_path / record["filename"]) as book:
+        package = etree.fromstring(book.read("EPUB/package.opf"))
+        assert package.xpath("//*[local-name()='spine']/*/@idref") == ["cover", "nav", "n_a", "n_b", "n_d"]
+        nav = book.read("EPUB/text/nav.xhtml").decode()
+        assert 'href="n_b.xhtml#n_c"' in nav and "Fuente:" not in book.read("EPUB/text/n_a.xhtml").decode()
+    shared = volume = record["filename"]
+    location = f"file:///mnt/onboard/{volume}#(3)EPUB/text/n_b.xhtml"
+    for quote, expected in [("Idea breve C.", "c"), ("Idea breve B.", "b")]:
+        highlight = resolve(Highlight(id=quote, volume_id=shared, content_id=location, text=quote), {EDITION: record})
+        assert highlight["source"]["id"] == expected and highlight["match"] == "exact_text"
+    repeated = record | {"sources": [*record["sources"], {**record["sources"][2], "id": "e", "href": "text/n_x.xhtml"}]}
+    within = resolve(Highlight(id="r", volume_id=shared, content_id=location, text="Idea breve C."), {EDITION: repeated})
+    assert within["source"]["id"] == "c"
+    single = resolve(Highlight(id="x", volume_id=shared, content_id=location.replace("n_b", "n_a"), text=""), {EDITION: record})
+    assert single["source"]["id"] == "a" and single["match"] == "chapter"
+
+
+def test_galician_edition_sets_language_and_labels(tmp_path):
+    request = PublicationRequest(notes=NOTES, language="gl", writing_mode="simple", study_aids="visual")
+    record = build_epub(request, plan_for("simple", "visual"), EDITION, tmp_path)
+    assert record["language"] == "gl"
+    with zipfile.ZipFile(tmp_path / record["filename"]) as book:
+        package = etree.fromstring(book.read("EPUB/package.opf"))
+        assert package.xpath("//*[local-name()='language']/text()") == ["gl"]
+        content = book.read("EPUB/text/n_a.xhtml").decode()
+        assert 'xml:lang="gl"' in content and "Apoios de estudo" in content and "nota orixinal" in content
+        assert "NESTE CADERNO" in book.read("EPUB/cover.svg").decode()
+    assert PublicationRequest(notes=NOTES).language == "es"

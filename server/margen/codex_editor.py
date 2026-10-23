@@ -47,7 +47,7 @@ def codex_plan(request: PublicationRequest, schema: dict, instructions: str) -> 
             ) + json.dumps({
                 "title": request.title, "intent": request.intent, "style": request.style, "artwork": request.artwork,
                 "writing_mode": request.writing_mode, "study_aids": request.study_aids,
-                "preserve_order": request.preserve_order,
+                "language": request.language, "preserve_order": request.preserve_order,
                 "notes": [n.model_dump() for n in request.notes],
             }, ensure_ascii=False)
             environment = dict(os.environ)

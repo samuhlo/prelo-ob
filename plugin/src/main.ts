@@ -7,7 +7,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { openKoboDatabase } from "./sqlite";
 import { apiErrorMessage, validateNoteSizes, appendHighlight, hash, readHighlights, ResolvedHighlight, highlightFilename, modernizeHighlightDates, safeRelative } from "./core";
-import { writingModes, studyAids, WritingMode, StudyAids } from "./editorial";
+import { writingModes, studyAids, WritingMode, StudyAids, Language } from "./editorial";
 import { Composer, emptyComposer, MARGEN_ICON, STUDIO_TYPE, StudioTab, StudioView } from "./studio";
 import { addPaths, renamePaths } from "./selection";
 import { findUpdate, RELEASES_API, RELEASES_URL, ReleaseUpdate, UPDATE_INTERVAL } from "./updates";
@@ -35,7 +35,7 @@ type PublicationDetail = Publication & {
 };
 type Source = { id: string; path: string; title: string; markdown: string; original_sha256: string };
 type Asset = { id: string; media_type: string; data: string };
-export type Draft = { id: string; title: string; intent: string; preserve_order?: boolean; style: string; paths: string[]; writing_mode?: WritingMode; study_aids?: StudyAids; use_ai?: boolean; send_to_kobo?: boolean };
+export type Draft = { id: string; title: string; intent: string; preserve_order?: boolean; style: string; paths: string[]; writing_mode?: WritingMode; study_aids?: StudyAids; language?: Language | null; use_ai?: boolean; send_to_kobo?: boolean };
 const DEFAULTS: Settings = {
   checkUpdates: true, serverUrl: "http://127.0.0.1:8765", token: "", koboPath: "/Volumes/KOBOeReader",
   outputFolder: "Prelo/Publicaciones", highlightsFolder: "Prelo/Subrayados",
@@ -392,7 +392,9 @@ export default class Prelo extends Plugin {
       let markdown = raw;
       for (const replacement of replacements.sort((a, b) => b.start - a.start))
         markdown = markdown.slice(0, replacement.start) + replacement.value + markdown.slice(replacement.end);
-      const title = cache?.headings?.find(h => h.level === 1)?.heading || file.basename;
+      // A malformed first heading (e.g. a pasted paragraph) must not reject the whole edition.
+      const heading = cache?.headings?.find(h => h.level === 1)?.heading.trim();
+      const title = (heading && heading.length <= 200 ? heading : file.basename).slice(0, 200);
       notes.push({ id: idByPath.get(file.path)!, path: file.path, title, markdown, original_sha256: hash(raw) });
     }
     validateNoteSizes(notes.map(note => note.markdown));

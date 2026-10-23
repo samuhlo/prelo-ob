@@ -52,7 +52,8 @@ def image_prompt(request: ArtworkRequest):
         "relationships that help explain it. Fill the canvas with the illustration, "
         "not a photograph or mockup of a physical box. Use distinct red/green/turquoise "
         "accents and strong silhouettes. No title or lettering; the note title is laid "
-        "out separately. Do not reuse a generic scene for different notes."
+        "over the lower quarter later, so keep that band calmer and free of key details. "
+        "Do not reuse a generic scene for different notes."
     )
     return (
         ART_DIRECTION + "\n" + framing + "\n"

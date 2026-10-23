@@ -37,6 +37,7 @@ class Asset(BaseModel):
 
 WritingMode = Literal["original", "narrative", "simple", "step_by_step", "review"]
 StudyAids = Literal["none", "visual", "practice", "complete"]
+Language = Literal["es", "gl"]
 
 
 class PublicationRequest(BaseModel):
@@ -47,6 +48,7 @@ class PublicationRequest(BaseModel):
     artwork: Literal["none", "generated"] = "none"
     writing_mode: WritingMode = "original"
     study_aids: StudyAids = "none"
+    language: Language = "es"
     use_ai: bool = False
     send_to_kobo: bool = False
     notes: list[Source] = Field(min_length=1, max_length=100)

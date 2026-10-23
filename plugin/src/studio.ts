@@ -5,7 +5,7 @@ import type { Draft, Publication } from "./main";
 import { compareVersions } from "./updates";
 import { matchesSearch, movePath } from "./selection";
 import { appendPreloLogo } from "./brand";
-import { writingModes, studyAids, WritingMode, StudyAids, adaptsContent, needsEditorialAI } from "./editorial";
+import { writingModes, studyAids, languages, WritingMode, StudyAids, Language, adaptsContent, needsEditorialAI, looksGalician } from "./editorial";
 
 export const STUDIO_TYPE = "margen-studio";
 export const MARGEN_ICON = "margen-magazine";
@@ -13,10 +13,12 @@ export type StudioTab = "compose" | "library" | "queue";
 export type Composer = {
   paths: string[]; title: string; intent: string; style: "study" | "retro90";
   preserveOrder: boolean; writingMode: WritingMode; studyAids: StudyAids;
+  // Unset means: follow the language detected in the selected notes.
+  language?: Language;
   useAI: boolean; sendToKobo: boolean; step: 1 | 2; draftId?: string;
 };
 export const emptyComposer = (): Composer => ({
-  paths: [], title: "", intent: "", preserveOrder: false, style: "study", writingMode: "original", studyAids: "none", useAI: false, sendToKobo: true, step: 1,
+  paths: [], title: "", intent: "", preserveOrder: false, style: "study", writingMode: "original", studyAids: "none", language: undefined, useAI: false, sendToKobo: true, step: 1,
 });
 type Library = {
   version?: string;
@@ -67,6 +69,7 @@ export class StudioView extends ItemView {
   private libraryFilter = "available";
   private visibleBooks = 24;
   private remoteSignature = "";
+  private detected = { key: "", galician: false };
 
   constructor(leaf: WorkspaceLeaf, private plugin: Prelo) { super(leaf); }
   getViewType() { return STUDIO_TYPE; }
@@ -361,6 +364,17 @@ export class StudioView extends ItemView {
     aidsSelect.value = c.studyAids;
     aids.createEl("small", { text: studyAids[c.studyAids].description });
     aidsSelect.onchange = () => this.plugin.changeComposer({ studyAids: aidsSelect.value as StudyAids });
+    if (this.detected.key !== c.paths.join("\n")) void this.detectLanguage(c.paths);
+    if (this.detected.galician || c.language === "gl") {
+      const language = fields.createEl("label", { cls: "margen-field" });
+      language.createSpan({ text: "Idioma de la revista" });
+      const languageSelect = language.createEl("select");
+      for (const [value, option] of Object.entries(languages)) languageSelect.createEl("option", { value, text: option.label });
+      languageSelect.value = this.language();
+      language.createEl("small", { text: adaptsContent(c) ? "Hemos detectado notas en gallego. La IA escribirá la revista en el idioma elegido."
+        : "Hemos detectado notas en gallego. Con «Notas originales» el texto se conserva; el idioma se aplica a la portada, el índice y los textos de la IA." });
+      languageSelect.onchange = () => this.plugin.changeComposer({ language: languageSelect.value as Language });
+    }
     fields.createEl("p", { cls: "margen-hint", text: "La redacción y los apoyos se pueden combinar con ambos tipos de revista. Adaptar el texto o añadir apoyos usa IA. Tus notas del vault no se modifican." });
     const title = fields.createEl("label", { cls: "margen-field" });
     title.createSpan({ text: "Un título para esta lectura" });
@@ -396,6 +410,20 @@ export class StudioView extends ItemView {
     this.page!.createEl("p", { cls: "margen-create-hint margen-hint" });
     this.updateCreateButton();
   }
+  private language(): Language {
+    return this.plugin.state.composer.language ?? (this.detected.galician ? "gl" : "es");
+  }
+  private async detectLanguage(paths: string[]) {
+    const key = paths.join("\n");
+    this.detected = { key, galician: this.detected.galician };
+    const files = paths.map(path => this.app.vault.getAbstractFileByPath(path)).filter((f): f is TFile => f instanceof TFile);
+    const texts = await Promise.all(files.slice(0, 40).map(async file => (await this.app.vault.cachedRead(file)).slice(0, 6000)));
+    if (this.detected.key !== key) return;
+    const galician = looksGalician(texts);
+    const changed = galician !== this.detected.galician;
+    this.detected = { key, galician };
+    if (changed && this.tab === "compose" && this.plugin.state.composer.step === 2 && !this.plugin.busy) this.render();
+  }
   private updateCreateButton() {
     const c = this.plugin.state.composer;
     const needsAI = needsEditorialAI(c);
@@ -416,7 +444,7 @@ export class StudioView extends ItemView {
     if (!c.paths.length) return;
     await this.plugin.run(async () => {
       const id = c.draftId || randomUUID();
-      await this.plugin.api("/v1/drafts", { id, title: c.title, intent: c.intent, preserve_order: c.preserveOrder, style: c.style, paths: c.paths, writing_mode: c.writingMode, study_aids: c.studyAids, use_ai: c.useAI, send_to_kobo: c.sendToKobo });
+      await this.plugin.api("/v1/drafts", { id, title: c.title, intent: c.intent, preserve_order: c.preserveOrder, style: c.style, paths: c.paths, writing_mode: c.writingMode, study_aids: c.studyAids, language: c.language ?? null, use_ai: c.useAI, send_to_kobo: c.sendToKobo });
       c.draftId = id; await this.plugin.save();
       new Notice("Borrador guardado en tu biblioteca. Puedes continuarlo desde otro equipo.");
       void this.refresh();
@@ -425,6 +453,7 @@ export class StudioView extends ItemView {
   private async create() {
     if (this.plugin.busy) return;
     const c = structuredClone(this.plugin.state.composer);
+    const language = this.language();
     await this.plugin.run(async () => {
       const chosen = c.paths.map(path => this.app.vault.getAbstractFileByPath(path)).filter((f): f is TFile => f instanceof TFile);
       if (!chosen.length || chosen.length !== c.paths.length) throw new Error("Revisa la selección: falta alguna nota en este equipo.");
@@ -433,7 +462,7 @@ export class StudioView extends ItemView {
         const prepared = await this.plugin.prepare(chosen);
         const result = await this.plugin.createPublication({
           title: c.title, intent: c.intent, preserve_order: c.preserveOrder, style: c.style, use_ai: needsEditorialAI(c),
-          writing_mode: c.writingMode, study_aids: c.studyAids,
+          writing_mode: c.writingMode, study_aids: c.studyAids, language,
           artwork: c.style === "retro90" ? "generated" : "none", send_to_kobo: c.sendToKobo, ...prepared,
         }, message => { this.progress = message; this.renderProgress(); });
         this.created = result;
@@ -474,7 +503,7 @@ export class StudioView extends ItemView {
         setIcon(row.createSpan(), "bookmark");
         const text = row.createDiv(); text.createEl("strong", { text: draft.title || "Una lectura por preparar" }); text.createEl("small", { text: `${draft.paths.length} notas · ${labelStyle(draft.style)}` });
         button(row, "Continuar", () => {
-          this.plugin.changeComposer({ ...emptyComposer(), paths: draft.paths, title: draft.title, intent: draft.intent, preserveOrder: draft.preserve_order ?? false, style: draft.style as "study" | "retro90", useAI: draft.use_ai ?? draft.style === "retro90", writingMode: draft.writing_mode ?? "original", studyAids: draft.study_aids ?? "none", sendToKobo: draft.send_to_kobo ?? true, draftId: draft.id }, true);
+          this.plugin.changeComposer({ ...emptyComposer(), paths: draft.paths, title: draft.title, intent: draft.intent, preserveOrder: draft.preserve_order ?? false, style: draft.style as "study" | "retro90", useAI: draft.use_ai ?? draft.style === "retro90", writingMode: draft.writing_mode ?? "original", studyAids: draft.study_aids ?? "none", language: draft.language ?? undefined, sendToKobo: draft.send_to_kobo ?? true, draftId: draft.id }, true);
           this.selectTab("compose");
         }, "arrow-right");
         iconButton(row, "trash-2", "Descartar borrador", () => void this.plugin.run(async () => {

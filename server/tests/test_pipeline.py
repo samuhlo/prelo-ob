@@ -211,12 +211,18 @@ def test_content_specific_artwork_and_cache(client, tmp_path, monkeypatch):
     with zipfile.ZipFile(folder / record["filename"]) as book:
         assert "data:image/jpeg;base64," in book.read("EPUB/cover.svg").decode()
         article = etree.fromstring(book.read("EPUB/text/n_a.xhtml"))
-        assert article.xpath("count(//*[local-name()='div' and @class='illustration'])") == 1
+        # The opening art has its own composed page; the caption leads the text.
+        assert article.xpath("count(//*[local-name()='div' and @class='illustration'])") == 0
         assert article.xpath("count(//*[local-name()='p' and @class='illustration-caption'])") == 1
         assert article.xpath("count(//*[local-name()='figcaption'])") == 0
         assert "Una imagen es una plantilla" in "".join(article.itertext())
         assert "EPUB/art/instances.jpg" in book.namelist()
-        assert b'class="illustration"' in book.read("EPUB/text/n_b.xhtml")
+        opener = etree.fromstring(book.read("EPUB/text/o_a.xhtml"))
+        assert opener.xpath("//*[local-name()='image']/@*[local-name()='href']") == ["../art/instances.jpg"]
+        assert "Imágenes" in "".join(opener.itertext())
+        package = etree.fromstring(book.read("EPUB/package.opf"))
+        assert package.xpath("//*[local-name()='spine']/*/@idref") == ["cover", "nav", "o_a", "n_a", "o_b", "n_b"]
+        assert package.xpath("//*[@id='o_a']/@properties") == ["svg"]
     assert record["artwork"][2]["source_ids"] == ["a"]
     endpoint = f"/v1/publications/{edition}/artwork/instances"
     assert client.get(endpoint).status_code == 401

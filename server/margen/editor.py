@@ -4,7 +4,7 @@ import httpx
 from .models import EditorialPlan, Chapter, PublicationRequest
 
 INSTRUCTIONS = (
-    "Eres el editor de una publicación personal en español. Organiza TODAS las notas "
+    "Eres el editor de una publicación personal. Organiza TODAS las notas "
     "en secciones con una secuencia de lectura coherente. Genera título, subtítulo "
     "y títulos de secciones. Incluye cada source_id exactamente una vez. "
     "El campo intent contiene las instrucciones extra del usuario: aplícalas como "
@@ -17,6 +17,11 @@ INSTRUCTIONS = (
     "intent sugiera otro orden: solo puedes agrupar notas consecutivas en secciones. "
     "Las instrucciones extra no autorizan omitir ni duplicar notas, modificar los "
     "originales en writing_mode=original, ni incumplir el esquema o las reglas de fuentes. "
+    "language fija el idioma de la publicación: es = castellano, gl = gallego normativo (RAG). "
+    "Escribe en ese idioma el título, el subtítulo, las secciones, los artículos adaptados, "
+    "los apoyos y las leyendas, aunque las notas estén en otro idioma; traduce con fidelidad "
+    "y conserva sin traducir el código, los comandos, las direcciones y los nombres propios. "
+    "En writing_mode=original no traduzcas ni modifiques las notas. "
     "writing_mode y study_aids son independientes del estilo visual. "
     "Si writing_mode=original y study_aids=none, articles debe ser []. "
     "En otro caso devuelve un artículo por cada nota en articles, con source_id, markdown y aids. "
@@ -50,7 +55,7 @@ INSTRUCTIONS = (
     "Para cada interior usa únicamente el source_id de esa nota y anchor_heading vacío "
     "para abrir el artículo. No copies carátulas ni personajes existentes. "
     "Cada visual debe indicar source_ids reales y explicar su concepto, la escena a ilustrar "
-    "y una breve leyenda precisa en español. La primera source_id es el artículo donde se colocará. "
+    "y una breve leyenda precisa en el idioma de language. La primera source_id es el artículo donde se colocará. "
     "Usa anchor_heading vacío también para la portada general. "
     "La portada debe representar el tema común del número. Para interiores elige relaciones, "
     "procesos, comparaciones o metáforas visuales que ayuden a entender, no adornos genéricos. "
@@ -64,6 +69,9 @@ INSTRUCTIONS = (
     "Las leyendas deben ser claras y breves, preferiblemente de menos de 220 caracteres. "
     "En todos los demás casos visuals debe ser []."
 )
+
+
+DEFAULT_SUBTITLE = {"es": "Una selección de tu biblioteca personal", "gl": "Unha selección da túa biblioteca persoal"}
 
 
 def outline_schema():
@@ -90,7 +98,7 @@ def plan_publication(request: PublicationRequest) -> EditorialPlan:
     if not request.use_ai and request.artwork != "generated":
         return EditorialPlan(
             title=request.title.strip() or "Lecturas en Prelo",
-            subtitle="Una selección de tu biblioteca personal",
+            subtitle=DEFAULT_SUBTITLE[request.language],
             chapters=[Chapter(title=n.title, source_ids=[n.id]) for n in request.notes],
         )
     if not ai_available():
@@ -117,7 +125,7 @@ def plan_publication(request: PublicationRequest) -> EditorialPlan:
         "messages": [{"role": "system", "content": INSTRUCTIONS}, {"role": "user", "content": json.dumps({
             "title": request.title, "intent": request.intent, "style": request.style, "artwork": request.artwork,
             "writing_mode": request.writing_mode, "study_aids": request.study_aids,
-            "preserve_order": request.preserve_order,
+            "language": request.language, "preserve_order": request.preserve_order,
             "notes": [n.model_dump() for n in request.notes],
         }, ensure_ascii=False)}],
         "response_format": {"type": "json_schema", "json_schema": {
