@@ -2,9 +2,6 @@
 import base64
 import io
 import re
-import threading
-from concurrent.futures import ThreadPoolExecutor
-import os
 from PIL import Image
 from pydantic import ValidationError
 from .diagrams import render_diagram
@@ -69,50 +66,35 @@ def apply_figures(markdown: str, figures: list[Figure], language: str) -> str:
     return IMAGE.sub(replace, markdown)
 
 
-def read_images(request: PublicationRequest, cache, progress, instructions: str, schema: dict) -> list[Figure]:
-    assets = {a.id: a for a in request.assets}
+def image_batches(request: PublicationRequest):
+    """Per note, its distinct images in groups of BATCH, with the text around each one."""
+    assets = {a.id for a in request.assets}
     batches = []
     for note in request.notes:
         found = [(m, context(note.markdown, m)) for m in IMAGE.finditer(note.markdown) if m.group(2) in assets]
         unique = list({m.group(2): (m, c) for m, c in found}.values())
-        for i in range(0, len(unique), BATCH):
-            batches.append((note, unique[i:i + BATCH]))
-    if not batches:
-        return []
-    total = sum(len(items) for _, items in batches)
-    done, lock, failures = [0], threading.Lock(), []
+        batches += [(note, unique[i:i + BATCH]) for i in range(0, len(unique), BATCH)]
+    return batches
 
-    def run(batch):
-        note, items = batch
-        payload = {"language": request.language, "note_title": note.title, "images": [
-            {"order": n, "asset_id": m.group(2), "alt": m.group(1), "text_before": before, "text_after": after}
-            for n, (m, (before, after)) in enumerate(items, 1)]}
-        images = [{"media_type": "image/png", "data": vision_png(assets[m.group(2)])} for m, _ in items]
-        readings = []
-        for _ in range(2):
-            try:
-                result = ImageReadings.model_validate(cache.call("vision", instructions, payload, schema, images))
-            except ValidationError:
-                cache.forget("vision", instructions, payload, schema)
-                continue
-            except ValueError as exc:
-                failures.append(exc)
-                continue
-            expected = {m.group(2) for m, _ in items}
-            readings = [r for r in result.images if r.asset_id in expected]
-            break
-        with lock:
-            done[0] += len(items)
-            progress(f"Leyendo imágenes: {done[0]} de {total}.")
-        # An image that could not be read keeps its original; it never blocks the edition.
-        return [f for f in (decide(r, request.style) for r in readings) if f]
 
-    progress(f"Leyendo imágenes: 0 de {total}.")
-    workers = max(1, int(os.getenv("AI_CONCURRENCY", "2")))
-    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="margen-vision") as pool:
-        results = list(pool.map(run, batches))
-    if failures and len(failures) >= 2 * len(batches):
-        # Nothing could be read: a provider problem, not a doubtful image.
-        raise failures[0]
-    figures = [f for result in results for f in result]
-    return list({f.asset_id: f for f in figures}.values())
+def read_batch(request: PublicationRequest, batch, cache, instructions: str, schema: dict):
+    """(figures, error). An image that cannot be read keeps its original; it never blocks the edition."""
+    note, items = batch
+    assets = {a.id: a for a in request.assets}
+    payload = {"language": request.language, "note_title": note.title, "images": [
+        {"order": n, "asset_id": m.group(2), "alt": m.group(1), "text_before": before, "text_after": after}
+        for n, (m, (before, after)) in enumerate(items, 1)]}
+    images = [{"media_type": "image/png", "data": vision_png(assets[m.group(2)])} for m, _ in items]
+    error = None
+    for _ in range(2):
+        try:
+            result = ImageReadings.model_validate(cache.call("vision", instructions, payload, schema, images))
+        except ValidationError:
+            cache.forget("vision", instructions, payload, schema)
+            continue
+        except ValueError as exc:
+            error = exc
+            continue
+        expected = {m.group(2) for m, _ in items}
+        return [f for f in (decide(r, request.style) for r in result.images if r.asset_id in expected) if f], None
+    return [], error

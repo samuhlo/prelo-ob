@@ -88,12 +88,13 @@ def test_redraw_reads_images_in_batches_and_builds_a_checkable_epub(monkeypatch,
             assert all(base64.b64decode(i["data"]).startswith(b"\x89PNG") for i in images)
             return {"images": [reading("img0", "diagram", diagram=NAT),
                                reading("img1", "table", table="| Puerto | Uso |\n|---|---|\n| 22 | SSH |")]}
-        assert "margen-figure:img0" in payload["notes"][0]["markdown"]
+        # The plan runs alongside image reading, so it sees the original references.
+        assert "margen-asset:img0" in payload["notes"][0]["markdown"]
         return {"title": "Redes", "subtitle": "", "visuals": [], "briefs": [],
                 "chapters": [{"title": "NAT", "source_ids": ["a"]}]}
     monkeypatch.setattr(editor, "complete", complete)
     plan = plan_publication(request)
-    assert [c[0] for c in calls] == ["vision", "plan"]
+    assert sorted(c[0] for c in calls) == ["plan", "vision"]
     assert {f.asset_id: f.action for f in plan.figures} == {"img0": "diagram", "img1": "table"}
     record = build_epub(request, plan, EDITION, tmp_path)
     with zipfile.ZipFile(tmp_path / record["filename"]) as book:
@@ -157,3 +158,36 @@ def test_edge_labels_with_data_are_never_cut(layout):
                "edges": [{"source": "pc", "target": "r", "label": label, "style": "arrow"}]}
     text = " ".join("".join(etree.fromstring(render_diagram(Diagram.model_validate(diagram)).encode()).itertext()).split())
     assert "…" not in text and "192.168.1.1" in text and "8.8.8.8" in text
+
+
+def test_each_note_is_written_while_other_images_are_still_read(monkeypatch):
+    import threading
+    notes = [{"id": n, "title": n.upper(), "path": f"{n}.md", "markdown": f"Texto {n}.\n\n![x](margen-asset:{n}img)"}
+             for n in ("a", "b")]
+    request = PublicationRequest(notes=notes, assets=[{"id": f"{n}img", "media_type": "image/png", "data": png("red")}
+                                                      for n in ("a", "b")], images="redraw", writing_mode="simple")
+    monkeypatch.setattr(editor, "ai_available", lambda: True)
+    monkeypatch.setenv("AI_CONCURRENCY", "3")
+    a_written = threading.Event()
+    def complete(stage, instructions, payload, schema, images=None):
+        if stage == "plan":
+            return {"title": "T", "subtitle": "", "visuals": [], "briefs": [],
+                    "chapters": [{"title": "C", "source_ids": ["a", "b"]}]}
+        if stage == "vision":
+            asset = payload["images"][0]["asset_id"]
+            if asset == "bimg":
+                # Note b's images finish only after note a has started writing.
+                assert a_written.wait(5), "note a waited for every image of the edition"
+            table = "| Dato | Valor |\n|---|---|\n| " + asset + " | 1 |"
+            return {"images": [reading(asset, "table", table=table)]}
+        if payload["article"]["source_id"] == "a":
+            assert "| aimg | 1 |" in payload["source"]
+            a_written.set()
+        return {"markdown": "Explicación. " + payload["source"], "aids": ""}
+    monkeypatch.setattr(editor, "complete", complete)
+    messages = []
+    plan = plan_publication(request, progress=messages.append)
+    assert [a.source_id for a in plan.articles] == ["a", "b"]
+    assert "| bimg | 1 |" in plan.articles[1].markdown
+    assert any("Leyendo imágenes: 2 de 2" in m for m in messages)
+    assert any("redactando: 2 de 2 partes" in m for m in messages)

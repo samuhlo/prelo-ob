@@ -5,13 +5,14 @@ import os
 import re
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from collections import defaultdict
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 import httpx
 from pydantic import BaseModel, ValidationError
 from .models import EditorialPlan, Chapter, PublicationRequest, Outline, WrittenPart, EditedArticle, ImageReadings
 from .prompts import outline_instructions, write_instructions, vision_instructions
-from .figures import apply_figures, read_images
+from .figures import apply_figures, image_batches, read_batch
 
 DEFAULT_SUBTITLE = {"es": "Una selección de tu biblioteca personal", "gl": "Unha selección da túa biblioteca persoal"}
 # Below this total the planner reads every note in full; above it, a digest of each.
@@ -247,46 +248,49 @@ def make_outline(request: PublicationRequest, cache: Cache):
     raise ValueError(f"La IA no preparó un plan válido: {error}")
 
 
-def write_articles(request: PublicationRequest, outline: Outline, cache: Cache, progress):
-    briefs = {b.source_id: b for b in outline.briefs}
-    notes = {n.id: n for n in request.notes}
-    chapter_of = {i: c.title for c in outline.chapters for i in c.source_ids}
-    plan_view = {"title": outline.title, "subtitle": outline.subtitle, "chapters": [
-        {"title": c.title, "notes": [{"id": i, "title": notes[i].title,
-                                      "summary": briefs[i].summary if i in briefs else ""} for i in c.source_ids]}
-        for c in outline.chapters]}
-    limit = int(os.getenv("AI_CHUNK_CHARS", "20000"))
-    instructions, schema = write_instructions(request), strict_schema(WrittenPart)
-    tasks = []
-    for source_id in [i for c in outline.chapters for i in c.source_ids]:
-        note = notes[source_id]
-        parts = split_markdown(body_of(note.markdown), limit)
-        brief = briefs.get(source_id)
-        for number, part in enumerate(parts, 1):
-            tasks.append((source_id, part, {
-                "settings": {"writing_mode": request.writing_mode, "study_aids": request.study_aids,
-                             "language": request.language, "intent": request.intent},
-                "publication": plan_view,
-                "article": {"source_id": source_id, "title": note.title, "chapter": chapter_of[source_id],
-                            "summary": brief.summary if brief else "",
-                            "connections": [{"id": i, "title": notes[i].title}
-                                            for i in (brief.connections if brief else []) if i in notes and i != source_id]},
-                "part": {"number": number, "total": len(parts)},
-                "previous_context": parts[number - 2][-600:] if number > 1 else "",
-                "source": part,
-            }))
-    done, lock = [0], threading.Lock()
-    check = request.writing_mode not in {"original", "review"}
+class Writer:
+    """Writes the parts of one note at a time, so each note starts as soon as it is ready."""
 
-    def run(task):
+    def __init__(self, request: PublicationRequest, outline: Outline, cache: Cache):
+        self.request, self.cache = request, cache
+        self.briefs = {b.source_id: b for b in outline.briefs}
+        self.notes = {n.id: n for n in request.notes}
+        self.chapter_of = {i: c.title for c in outline.chapters for i in c.source_ids}
+        self.plan_view = {"title": outline.title, "subtitle": outline.subtitle, "chapters": [
+            {"title": c.title, "notes": [{"id": i, "title": self.notes[i].title,
+                                          "summary": self.briefs[i].summary if i in self.briefs else ""}
+                                         for i in c.source_ids]}
+            for c in outline.chapters]}
+        self.instructions, self.schema = write_instructions(request), strict_schema(WrittenPart)
+        self.check = request.writing_mode not in {"original", "review"}
+
+    def tasks(self, note):
+        """(source_id, source part, payload) for every part of the note, as the writer will read it."""
+        parts = split_markdown(body_of(note.markdown), chunk_limit())
+        brief = self.briefs.get(note.id)
+        return [(note.id, part, {
+            "settings": {"writing_mode": self.request.writing_mode, "study_aids": self.request.study_aids,
+                         "language": self.request.language, "intent": self.request.intent},
+            "publication": self.plan_view,
+            "article": {"source_id": note.id, "title": note.title, "chapter": self.chapter_of[note.id],
+                        "summary": brief.summary if brief else "",
+                        "connections": [{"id": i, "title": self.notes[i].title}
+                                        for i in (brief.connections if brief else []) if i in self.notes and i != note.id]},
+            "part": {"number": number, "total": len(parts)},
+            "previous_context": parts[number - 2][-600:] if number > 1 else "",
+            "source": part,
+        }) for number, part in enumerate(parts, 1)]
+
+    def run(self, task) -> WrittenPart:
         source_id, source, payload = task
+        request, cache = self.request, self.cache
         best, best_missing, error = None, [], None
         for attempt in range(2):
             attempt_payload = {**payload, "missing": best_missing[:40]} if best_missing else payload
             try:
-                part = WrittenPart.model_validate(cache.call("write", instructions, attempt_payload, schema))
+                part = WrittenPart.model_validate(cache.call("write", self.instructions, attempt_payload, self.schema))
             except ValidationError:
-                cache.forget("write", instructions, attempt_payload, schema)
+                cache.forget("write", self.instructions, attempt_payload, self.schema)
                 continue
             except ValueError as exc:
                 error = exc
@@ -297,33 +301,42 @@ def write_articles(request: PublicationRequest, outline: Outline, cache: Cache, 
                 part.aids = ""
             if request.writing_mode != "original" and not part.markdown.strip() or \
                     request.study_aids != "none" and not part.aids.strip():
-                cache.forget("write", instructions, attempt_payload, schema)
+                cache.forget("write", self.instructions, attempt_payload, self.schema)
                 continue
-            missing = missing_tokens(source, part.markdown) if check else []
+            missing = missing_tokens(source, part.markdown) if self.check else []
             if best is None or len(missing) < len(best_missing):
                 best, best_missing = part, missing
-            required = len(required_tokens(source))
-            if len(missing) < 3 or len(missing) <= required * 0.15:
+            if len(missing) < 3 or len(missing) <= len(required_tokens(source)) * 0.15:
                 break
         if best is None:
             # Finished parts stay cached: a retry only redoes what is missing.
-            raise ValueError(f"La IA no completó la redacción de «{notes[source_id].title}». "
+            raise ValueError(f"La IA no completó la redacción de «{self.notes[source_id].title}». "
                              "Reintenta la edición; las partes terminadas se reutilizarán.") from error
-        with lock:
-            done[0] += 1
-            progress(f"Redactando: {done[0]} de {len(tasks)} partes listas.")
         return best
 
-    progress(f"Redactando: 0 de {len(tasks)} partes listas.")
-    workers = max(1, int(os.getenv("AI_CONCURRENCY", "2")))
-    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="margen-write") as pool:
-        results = list(pool.map(run, tasks))
-    articles = {}
-    for (source_id, _, _), part in zip(tasks, results):
-        article = articles.setdefault(source_id, EditedArticle(source_id=source_id, markdown="", aids=""))
-        article.markdown = "\n\n".join(p for p in [article.markdown, part.markdown.strip()] if p)
-        article.aids = "\n\n".join(p for p in [article.aids, part.aids.strip()] if p)
-    return list(articles.values())
+
+def chunk_limit():
+    return int(os.getenv("AI_CHUNK_CHARS", "20000"))
+
+
+class Status:
+    """One progress line for stages that now overlap."""
+
+    def __init__(self, progress, images: int, parts: int):
+        self.progress, self.lock = progress, threading.Lock()
+        self.images, self.images_done, self.parts, self.parts_done = images, 0, parts, 0
+
+    def update(self, images=0, parts=0, more_parts=0):
+        with self.lock:
+            self.images_done += images
+            self.parts_done += parts
+            self.parts += more_parts
+            reading = f"Leyendo imágenes: {self.images_done} de {self.images}" if self.images else ""
+            writing = f"redactando: {self.parts_done} de {self.parts} partes listas" if self.parts else ""
+            if reading and writing:
+                self.progress(f"{reading} · {writing}.")
+            elif reading or writing:
+                self.progress((reading or writing[0].upper() + writing[1:]) + ".")
 
 
 def plan_publication(request: PublicationRequest, cache_dir: Path | None = None, progress=lambda _: None) -> EditorialPlan:
@@ -336,18 +349,68 @@ def plan_publication(request: PublicationRequest, cache_dir: Path | None = None,
     if not ai_available():
         raise ValueError("Activa un proveedor de IA en el servidor para usar esta opción.")
     cache = Cache(cache_dir)
-    figures, working = [], request
-    if request.images == "redraw" and request.assets:
-        figures = read_images(request, cache, progress, vision_instructions(request), strict_schema(ImageReadings))
-        # Later stages read the notes with their images already reinterpreted.
-        working = request.model_copy(update={"notes": [
-            n.model_copy(update={"markdown": apply_figures(n.markdown, figures, request.language)}) for n in request.notes]})
+    writes = request.writing_mode != "original" or request.study_aids != "none"
+    batches = image_batches(request) if request.images == "redraw" and request.assets else []
+    vision = vision_instructions(request), strict_schema(ImageReadings)
+    estimate = {n.id: len(split_markdown(body_of(n.markdown), chunk_limit())) if writes else 0 for n in request.notes}
+    status = Status(progress, sum(len(items) for _, items in batches), sum(estimate.values()))
     progress("Preparando el plan editorial del número.")
-    outline = make_outline(working, cache)
-    plan = EditorialPlan(**outline.model_dump(exclude={"briefs"}), figures=figures)
-    if request.title.strip():
-        plan.title = request.title.strip()
-    if request.writing_mode != "original" or request.study_aids != "none":
-        plan.articles = write_articles(working, outline, cache, progress)
+    # One pool for every stage: the plan does not need the images, and each note is
+    # written as soon as the plan and its own images are ready.
+    pool = ThreadPoolExecutor(max_workers=max(1, int(os.getenv("AI_CONCURRENCY", "2"))), thread_name_prefix="margen-ai")
+    try:
+        planned = pool.submit(make_outline, request, cache)
+        reading = defaultdict(list)
+        for batch in batches:
+            future = pool.submit(read_batch, request, batch, cache, *vision)
+            future.add_done_callback(lambda f, n=len(batch[1]): status.update(images=n))
+            reading[batch[0].id].append(future)
+        outline = planned.result()
+        writer = Writer(request, outline, cache) if writes else None
+        order = [i for c in outline.chapters for i in c.source_ids]
+        notes = {n.id: n for n in request.notes}
+        figures, failures, written = {}, [], {}
+        waiting = set(order)
+        while waiting:
+            ready = [i for i in order if i in waiting and all(f.done() for f in reading[i])]
+            if not ready:
+                wait([f for i in waiting for f in reading[i] if not f.done()], return_when=FIRST_COMPLETED)
+                continue
+            for source_id in ready:
+                waiting.discard(source_id)
+                own = []
+                for future in reading[source_id]:
+                    found, error = future.result()
+                    own += found
+                    if error:
+                        failures.append(error)
+                figures.update({f.asset_id: f for f in own})
+                if writer:
+                    note = notes[source_id]
+                    note = note.model_copy(update={"markdown": apply_figures(note.markdown, own, request.language)})
+                    tasks = writer.tasks(note)
+                    status.update(more_parts=len(tasks) - estimate[source_id])
+                    written[source_id] = [(task, pool.submit(writer.run, task)) for task in tasks]
+                    for _, future in written[source_id]:
+                        future.add_done_callback(lambda f: f.exception() or status.update(parts=1))
+        if batches and len(failures) == len(batches):
+            # Nothing could be read: a provider problem, not a doubtful image.
+            raise failures[0]
+        plan = EditorialPlan(**outline.model_dump(exclude={"briefs"}), figures=list(figures.values()))
+        if request.title.strip():
+            plan.title = request.title.strip()
+        if writer:
+            articles = []
+            for source_id in order:
+                parts = [future.result() for _, future in written[source_id]]
+                articles.append(EditedArticle(
+                    source_id=source_id,
+                    markdown="\n\n".join(p.markdown.strip() for p in parts if p.markdown.strip()),
+                    aids="\n\n".join(p.aids.strip() for p in parts if p.aids.strip())))
+            plan.articles = articles
+    except BaseException:
+        pool.shutdown(wait=True, cancel_futures=True)
+        raise
+    pool.shutdown(wait=True)
     # Validate the complete editorial result before rendering any edition.
     return plan.verify_visuals(request)
