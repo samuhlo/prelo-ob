@@ -69,7 +69,8 @@
 .margen-page > .margen-kicker { color:var(--mg-accent-text); font-size:10px; letter-spacing:0.16em; margin:0 0 12px; }
 .margen-page > h1 { margin:0 0 12px; font-size:clamp(28px,4.6cqw,44px); font-weight:650; letter-spacing:-0.045em; line-height:1.08; max-width:23ch; }
 .margen-lead { color:var(--text-muted); font-size:13px; line-height:1.65; max-width:65ch; margin:0 0 25px; }
-.margen-steps { display:flex; align-items:center; gap:8px; margin:0 0 20px; }
+.margen-steps { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:0 0 20px; }
+.margen-steps .margen-button { white-space:nowrap; }
 .margen-session-actions { display:flex; align-items:center; gap:4px; margin-left:auto; }
 .margen-start { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
 .margen-progress-actions { display:flex; flex-wrap:wrap; gap:8px; }
@@ -195,10 +196,10 @@
 .margen-draft-row > div { min-width:0; flex:1; }
 .margen-draft-row strong,.margen-draft-row small { display:block; font-size:12px; }
 .margen-draft-row small { margin-top:5px; font-size:10px; color:var(--text-muted); }
-.margen-device-card { display:flex; align-items:center; gap:20px; padding:24px; border:1px solid var(--mg-line); background:var(--mg-surface); border-radius:14px; margin:20px 0 32px; }
+.margen-device-card { display:flex; flex-wrap:wrap; align-items:center; gap:20px; padding:24px; border:1px solid var(--mg-line); background:var(--mg-surface); border-radius:14px; margin:20px 0 32px; }
 .margen-device-icon { display:flex; color:var(--mg-accent-text); }
 .margen-device-icon svg { width:46px; height:46px; stroke-width:1.4; }
-.margen-device-card > div { flex:1; min-width:0; }
+.margen-device-card > div { flex:1 1 240px; min-width:0; }
 .margen-device-card h2 { margin:0 0 7px; font-size:18px; font-weight:600; }
 .margen-device-card p { font-size:12px; line-height:1.6; color:var(--text-muted); margin:0; }
 .margen-device-card small { display:block; font-size:10px; line-height:1.5; color:var(--text-muted); margin-top:8px; }
@@ -237,8 +238,6 @@
   .margen-selection-tools { flex:1; margin:0; }
   .margen-header { flex-wrap:wrap; }
   .margen-device-card { flex-wrap:wrap; gap:13px; padding:18px; }
-  .margen-reader-row { grid-template-columns:auto minmax(0,1fr) auto; }
-  .margen-reader-progress { grid-column:2 / -1; grid-row:2; }
   .margen-library-heading { flex-wrap:wrap; gap:14px; }
 }
 @container(max-width:430px) {
@@ -284,7 +283,7 @@
 .margen-reader-copy small,.margen-reader-progress small { display:block; font-size:10px; color:var(--text-muted); margin-top:3px; line-height:1.4; }
 .margen-reader-progress .margen-storage-track { margin:0; background:var(--background-modifier-border); }
 .margen-reader-actions { display:flex; align-items:center; justify-content:flex-end; gap:4px; }
-.margen-reader-actions .margen-button { font-size:10px; padding:6px 9px; min-height:30px; }
+.margen-reader-actions .margen-button { font-size:10px; padding:6px 9px; min-height:30px; white-space:nowrap; }
 .margen-highlight-list { display:flex; flex-direction:column; gap:14px; max-height:55vh; overflow:auto; }
 .margen-highlight blockquote { margin:0; padding:2px 0 2px 14px; border-left:3px solid var(--mg-accent); font-size:13px; line-height:1.6; }
 .margen-highlight p { margin:6px 0 0 17px; font-size:12px; color:var(--text-muted); }
@@ -293,3 +292,12 @@
 .margen-update-notice { margin:12px 24px; padding:12px 16px; border:1px solid var(--background-modifier-border); border-radius:8px; background:var(--background-secondary); }
 .margen-update-notice p { margin:0 0 8px; }
 .margen-update-notice .margen-button + .margen-button { margin-left:8px; }
+
+/* Narrow panes. Kept last so they override the base rules above. */
+@container(max-width:600px) {
+  .margen-reader-row { grid-template-columns:auto minmax(0,1fr) auto; row-gap:8px; }
+  .margen-reader-progress { grid-column:2 / -1; grid-row:2; }
+  .margen-section-heading { flex-wrap:wrap; }
+  .margen-device-card > .margen-device-actions { margin-left:0; justify-content:flex-start; flex-basis:100%; }
+  .margen-session-actions .margen-button { padding:7px 6px; }
+}
