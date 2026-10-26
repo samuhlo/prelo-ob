@@ -282,10 +282,11 @@ def test_library_reports_where_each_delivery_really_is(environment, tmp_path):
 
 def epub_bytes(title="Libro"):
     output = io.BytesIO()
+    # Fixed timestamps: two calls must produce identical bytes.
     with zipfile.ZipFile(output, "w") as book:
-        book.writestr("mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED)
-        book.writestr("META-INF/container.xml", "<container/>")
-        book.writestr("content.opf", f"<title>{title}</title>")
+        for name, text in [("mimetype", "application/epub+zip"), ("META-INF/container.xml", "<container/>"),
+                           ("content.opf", f"<title>{title}</title>")]:
+            book.writestr(zipfile.ZipInfo(name, (2026, 1, 1, 0, 0, 0)), text)
     return output.getvalue()
 
 
