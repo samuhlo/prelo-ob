@@ -1,5 +1,10 @@
 # Cambios
 
+## 0.10.1 — Revista 90's más ligera en el Kobo
+
+- Revista 90's lleva la portada y las carátulas como imágenes JPEG compuestas en el servicio, en lugar de SVG, y ajusta las imágenes de las notas a la pantalla del Kobo. La revista se ve mejor en el lector y pesa alrededor de un 40 % menos.
+- El servicio instala la fuente Liberation Sans para componer esos títulos.
+
 ## 0.10.0 — Tu Kobo desde cualquier equipo
 
 - Pestaña Kobo renovada: libros del lector con progreso y fecha de lectura, revistas de Prelo y otros EPUB, búsqueda y filtros.
