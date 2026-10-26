@@ -1,9 +1,12 @@
-Prelo 0.9.2 dice dónde está realmente cada revista y deja de mantener selecciones a medias.
+Prelo 0.10.0 gestiona el Kobo desde cualquier equipo.
 
-- El estado de una revista enviada refleja lo que hay en el Kobo: copiada y pendiente de importar, en tu Kobo con el porcentaje leído, no importada o retirada del lector, con la opción de volver a enviarla.
-- Preparar revista empieza con «Empezar una revista» y «Para retomar». Al cerrar Prelo, la revista a medias se guarda como borrador compartido entre equipos y desaparecen los marcadores de selección.
-- «Guardar y salir», «Descartar» y «Cancelar edición» para una revista que se está generando.
+- La pestaña Kobo muestra los libros del lector, revistas de Prelo y otros EPUB, con progreso, fecha de lectura, búsqueda y filtros.
+- Quita libros del Kobo, envía cualquier EPUB y cancela cambios pendientes desde cualquier equipo; el Mac los aplica en la próxima conexión y expulsa el lector.
+- Consulta los subrayados de cada libro, también de los EPUB que no son de Prelo, y abre su nota en el vault.
+- Al eliminar una revista de la biblioteca se puede quitar también del Kobo.
+- Las ilustraciones de Revista 90's se generan de tres en tres.
+- Repaso visual de las tres pestañas y de las vistas estrechas.
 
-Actualiza el servicio y los conectores del Mac con el paquete macOS: el conector USB informa del contenido del Kobo y el servicio permite cancelar ediciones. El plugin se actualiza con «Actualizar ahora».
+Actualiza el servicio y los conectores del Mac con el paquete macOS y el plugin con «Actualizar ahora».
 
-Assets: `prelo-plugin-0.9.2.zip`, `prelo-macos-0.9.2.zip`, `main.js`, `manifest.json`, `styles.css` y `SHA256SUMS`.
+Assets: `prelo-plugin-0.10.0.zip`, `prelo-macos-0.10.0.zip`, `main.js`, `manifest.json`, `styles.css` y `SHA256SUMS`.

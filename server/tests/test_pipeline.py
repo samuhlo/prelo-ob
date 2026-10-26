@@ -162,7 +162,8 @@ def test_publication_job_is_idempotent(client):
     payload = {"id": job_id, "publication": PAYLOAD}
     assert client.post("/v1/jobs", headers=AUTH, json=payload).status_code == 202
     assert client.post("/v1/jobs", headers=AUTH, json=payload).status_code == 202
-    for _ in range(100):
+    # Generous bound for a cold, busy machine; the loop exits as soon as the job ends.
+    for _ in range(1000):
         record = client.get(f"/v1/jobs/{job_id}", headers=AUTH).json()
         if record["state"] in {"complete", "failed"}: break
         time.sleep(.01)
@@ -187,7 +188,7 @@ def test_running_job_can_be_cancelled(client, monkeypatch):
     assert client.post("/v1/jobs", headers=AUTH, json={"id": job_id, "publication": PAYLOAD}).status_code == 202
     assert started.wait(5)
     assert client.post(f"/v1/jobs/{job_id}/cancel", headers=AUTH).status_code == 200
-    for _ in range(200):
+    for _ in range(1000):
         record = client.get(f"/v1/jobs/{job_id}", headers=AUTH).json()
         if record["state"] == "cancelled": break
         time.sleep(.01)

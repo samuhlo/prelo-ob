@@ -1,6 +1,6 @@
 # Cambios
 
-## Sin publicar
+## 0.10.0 — Tu Kobo desde cualquier equipo
 
 - Pestaña Kobo renovada: libros del lector con progreso y fecha de lectura, revistas de Prelo y otros EPUB, búsqueda y filtros.
 - Desde cualquier equipo: quitar libros del Kobo, enviar cualquier EPUB y cancelar cambios pendientes; el Mac los aplica en la próxima conexión.
@@ -9,6 +9,7 @@
 - Las ilustraciones de Revista 90's se generan de tres en tres (`AI_IMAGE_CONCURRENCY`).
 - Repaso visual: botones alineados, selección más compacta, vistas estrechas legibles y títulos de nota sin encabezados corruptos.
 - Una revista en preparación se mantiene al actualizar o recargar el plugin.
+- El instalador recompila el servicio aunque un archivo cambie sin variar de tamaño.
 
 ## 0.9.2 — Estado real del Kobo y revistas a medias
 
