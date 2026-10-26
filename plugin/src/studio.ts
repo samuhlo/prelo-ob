@@ -182,7 +182,8 @@ export class StudioView extends ItemView {
     if (server) this.plugin.serverVersion = server;
     if (update) {
       notice.createEl("p", { text: `Prelo ${update.version}${update.beta ? " (beta)" : ""} disponible · tienes ${this.plugin.manifest.version} en este equipo.` });
-      button(notice, "Ver actualización", () => this.plugin.openUpdates(), "download");
+      button(notice, "Actualizar ahora", () => void this.plugin.installUpdate(), "download");
+      button(notice, "Novedades", () => this.plugin.openUpdates(), "external-link");
     }
     if (server && compareVersions(this.plugin.manifest.version, server) === 1)
       notice.createEl("p", { text: `El servidor usa ${server}; este plugin usa ${this.plugin.manifest.version}. Actualiza el servicio y los conectores del Mac para disponer de las nuevas funciones.` });

@@ -1,5 +1,9 @@
 # Cambios
 
+## Sin publicar
+
+- «Actualizar ahora» instala la nueva versión del plugin en el propio Obsidian: descarga la release, comprueba sus sumas SHA-256 y reinicia Prelo. «Novedades» abre la release en GitHub.
+
 ## 0.9.0 — Ediciones grandes, idioma y maquetación
 
 - Revista 90’s enmarca cada imagen de las notas en un bisel de consola de 16 bits, con su número de figura en el mismo bloque. La imagen original no cambia; las pequeñas se amplían con píxeles nítidos.

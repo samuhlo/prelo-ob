@@ -107,7 +107,9 @@ Para proveedores compatibles, el servicio conserva `AI_BASE_URL`, `AI_MODEL` y `
 
 Descarga el paquete de la nueva release, cierra Obsidian y ejecuta su instalador indicando el mismo vault. Mantiene la credencial del servicio y respalda la configuración anterior. Selecciona el mismo contexto Docker usado en la instalación inicial.
 
-En clientes con BRAT, actualiza desde BRAT. En instalación manual sustituye `main.js`, `manifest.json` y `styles.css`, conservando `data.json`. La versión 0.7 ya no necesita descargar un archivo WASM aparte; un archivo antiguo sobrante no impide usar el plugin.
+Desde 0.9.1, el plugin se actualiza en el propio Obsidian: pulsa «Actualizar ahora» en el aviso de Prelo o en Ajustes → Prelo. Descarga `main.js`, `manifest.json` y `styles.css` de la release, comprueba sus sumas SHA-256 y reinicia el plugin sin tocar `data.json`. Cada equipo se actualiza por separado; el servicio del Mac sigue necesitando el paquete para macOS.
+
+También puedes actualizar desde BRAT. En instalación manual sustituye `main.js`, `manifest.json` y `styles.css`, conservando `data.json`. La versión 0.7 ya no necesita descargar un archivo WASM aparte; un archivo antiguo sobrante no impide usar el plugin.
 
 Las instalaciones existentes conservan las claves `margen_id`, `margen_lectura`, los nombres de EPUB y los marcadores de citas. No renombres esos datos para cambiar la marca visual.
 

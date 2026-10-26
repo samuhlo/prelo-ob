@@ -45,7 +45,7 @@ La sincronización con el Kobo es por USB. El cable forma parte del ritmo del pr
 ## Qué incluye
 
 - Una vista propia en Obsidian con selección, biblioteca, borradores y cola.
-- Avisos de nuevas versiones en el plugin, comprobación manual y versión del servidor visible. Cada equipo actualiza su plugin por separado mediante BRAT o el ZIP.
+- Avisos de nuevas versiones y actualización del plugin desde Obsidian, con verificación SHA-256. Cada equipo actualiza su plugin por separado; el servicio del Mac, con su paquete.
 - EPUB 3 con portada, índice, imágenes locales, tablas y código.
 - **Revista de estudio** sin IA por defecto. **Revista 90's** con portada general y una carátula de juego retro por nota mediante Codex.
 - **Redacción independiente del diseño**: notas originales (por defecto), revista narrativa, explicación sencilla, paso a paso o repaso rápido.

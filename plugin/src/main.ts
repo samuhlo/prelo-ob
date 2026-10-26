@@ -1,6 +1,6 @@
 import {
   App, FileSystemAdapter, Modal, Notice, Plugin, PluginSettingTab,
-  requestUrl, Setting, TFile, TFolder, TAbstractFile, MarkdownView, normalizePath, addIcon, setIcon,
+  requestUrl, requireApiVersion, Setting, TFile, TFolder, TAbstractFile, MarkdownView, normalizePath, addIcon, setIcon,
 } from "obsidian";
 import { promises as fs, constants as fsConstants } from "node:fs";
 import path from "node:path";
@@ -10,12 +10,16 @@ import { apiErrorMessage, validateNoteSizes, appendHighlight, hash, readHighligh
 import { writingModes, studyAids, WritingMode, StudyAids, Language } from "./editorial";
 import { Composer, emptyComposer, MARGEN_ICON, STUDIO_TYPE, StudioTab, StudioView } from "./studio";
 import { addPaths, renamePaths } from "./selection";
-import { findUpdate, RELEASES_API, RELEASES_URL, ReleaseUpdate, UPDATE_INTERVAL } from "./updates";
+import { findUpdate, installable, PLUGIN_FILES, RELEASES_API, RELEASES_URL, ReleaseUpdate, UPDATE_INTERVAL, verifyUpdate } from "./updates";
 
 type Settings = {
   serverUrl: string; token: string; koboPath: string; outputFolder: string;
   highlightsFolder: string; frontmatter: string; checkUpdates: boolean;
 };
+// Obsidian's plugin registry is not part of the public API; checked before use.
+type PluginRegistry = { disablePlugin(id: string): Promise<void>; enablePlugin(id: string): Promise<boolean>; loadManifests?(): Promise<void> };
+const isPluginRegistry = (value: unknown): value is PluginRegistry => typeof value === "object" && value !== null
+  && typeof Reflect.get(value, "disablePlugin") === "function" && typeof Reflect.get(value, "enablePlugin") === "function";
 type ImportReceipt = { completedAt: string; examined: number; added: number; unresolved: number };
 type State = { settings: Settings; sources: Record<string, string>; importNotes: Record<string, string>; lastImport?: ImportReceipt;
   activeJob?: string;
@@ -262,7 +266,7 @@ export default class Prelo extends Plugin {
       this.update = update;
       this.updateMessage = update ? `Disponible Prelo ${update.version}${update.beta ? " (beta)" : ""}.` : `No hay una versión publicada más reciente que ${this.manifest.version}.`;
       if (manual || update && this.notifiedVersion !== update.version) {
-        new Notice(this.updateMessage + (update ? " Abre Prelo o sus ajustes para ver la actualización." : ""), 10000);
+        new Notice(this.updateMessage + (update ? " Pulsa «Actualizar ahora» en Prelo o en sus ajustes." : ""), 10000);
         if (update) this.notifiedVersion = update.version;
       }
     } catch (error) {
@@ -276,6 +280,47 @@ export default class Prelo extends Plugin {
     }
   }
   openUpdates() { window.open(this.update?.url ?? RELEASES_URL); }
+  async installUpdate() {
+    if (!this.update) await this.checkForUpdates(true);
+    const update = this.update;
+    if (!update) return;
+    if (!installable(update)) return this.openUpdates();
+    let installed = false;
+    await this.run(async () => {
+      const notice = new Notice(`Descargando Prelo ${update.version}…`, 0);
+      try {
+        const files: Record<string, ArrayBuffer> = {};
+        for (const name of [...PLUGIN_FILES, "SHA256SUMS"]) {
+          const response = await requestUrl({ url: update.downloads[name], throw: false });
+          if (response.status !== 200) throw new Error("No se pudo descargar la actualización. Comprueba la conexión e inténtalo de nuevo.");
+          files[name] = response.arrayBuffer;
+        }
+        const { minAppVersion } = verifyUpdate(files, { id: this.manifest.id, version: update.version });
+        if (!requireApiVersion(minAppVersion)) throw new Error(`Prelo ${update.version} necesita Obsidian ${minAppVersion} o posterior. Actualiza Obsidian primero.`);
+        await this.save();
+        const dir = this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
+        // The manifest goes last, so an interrupted copy still reports the previous version.
+        for (const name of ["main.js", "styles.css", "manifest.json"])
+          await this.app.vault.adapter.writeBinary(normalizePath(`${dir}/${name}`), files[name]);
+        installed = true;
+      } finally { notice.hide(); }
+    });
+    if (installed) await this.reloadAfterUpdate(update.version);
+  }
+  private async reloadAfterUpdate(version: string) {
+    const registry: unknown = Reflect.get(this.app, "plugins");
+    if (!isPluginRegistry(registry)) return void new Notice(`Prelo ${version} instalado. Reinicia Obsidian para usarlo.`, 0);
+    const id = this.manifest.id;
+    try {
+      await registry.disablePlugin(id);
+      // main.js is read from disk on enable, but manifests are cached until reloaded.
+      if (typeof registry.loadManifests === "function") await registry.loadManifests();
+      if (!await registry.enablePlugin(id)) throw new Error("enable");
+      new Notice(`Prelo ${version} instalado y en marcha.`, 8000);
+    } catch {
+      new Notice(`Prelo ${version} instalado. Reinicia Obsidian para usarlo.`, 0);
+    }
+  }
   preview(publication: Publication) { this.showModal(new PreviewModal(this, publication)); }
   save() {
     const snapshot = JSON.parse(JSON.stringify(this.state));
@@ -654,7 +699,7 @@ class PreloSettings extends PluginSettingTab {
         if (value) { await this.plugin.checkForUpdates(true); refreshVersions(); }
       }));
     new Setting(container).setName("Actualizar Prelo")
-      .setDesc("Actualiza el plugin en cada equipo mediante BRAT o el ZIP del plugin. Actualiza también el servicio y los conectores en el Mac con el paquete para macOS; la biblioteca compartida no actualiza los plugins.")
+      .setDesc("«Actualizar ahora» descarga el plugin de la release de GitHub, comprueba sus sumas SHA-256 y lo reinicia en este equipo. Cada equipo se actualiza por separado. El servicio y los conectores del Mac se actualizan con el paquete para macOS.")
       .addButton(b => b.setButtonText("Comprobar versiones").onClick(async () => {
         b.setDisabled(true);
         try {
@@ -663,7 +708,11 @@ class PreloSettings extends PluginSettingTab {
           refreshVersions();
         } finally { b.setDisabled(false); }
       }))
-      .addButton(b => b.setButtonText("Ver versión y descargas").onClick(() => this.plugin.openUpdates()));
+      .addButton(b => b.setButtonText("Ver novedades").onClick(() => this.plugin.openUpdates()))
+      .addButton(b => b.setButtonText("Actualizar ahora").setCta().onClick(async () => {
+        b.setDisabled(true);
+        try { await this.plugin.installUpdate(); refreshVersions(); } finally { b.setDisabled(false); }
+      }));
     new Setting(container).setName("Conexión con el servidor")
       .setDesc("Importa conexion-prelo.json, incluido en el paquete privado del panel.")
       .addButton(b => b.setButtonText("Importar conexión").onClick(() => this.plugin.showModal(new ConnectionModal(this.plugin))));
