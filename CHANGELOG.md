@@ -1,6 +1,6 @@
 # Cambios
 
-## Sin publicar
+## 0.9.1 — Actualizar desde Obsidian
 
 - «Actualizar ahora» instala la nueva versión del plugin en el propio Obsidian: descarga la release, comprueba sus sumas SHA-256 y reinicia Prelo. «Novedades» abre la release en GitHub.
 
