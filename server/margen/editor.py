@@ -11,7 +11,7 @@ import httpx
 from pydantic import BaseModel, ValidationError
 from .jobs import Cancelled
 from .models import EditorialPlan, Chapter, PublicationRequest, Outline, WrittenPart, EditedArticle
-from .prompts import outline_instructions, write_instructions
+from .prompts import PROMPT_VERSION, outline_instructions, write_instructions
 
 DEFAULT_SUBTITLE = {"es": "Una selección de tu biblioteca personal", "gl": "Unha selección da túa biblioteca persoal"}
 # Below this total the planner reads every note in full; above it, a digest of each.
@@ -112,7 +112,7 @@ class Cache:
                     path.unlink(missing_ok=True)
 
     def call(self, stage, instructions, payload, schema):
-        key = hashlib.sha256(json.dumps([stage_settings(stage), instructions, payload, schema],
+        key = hashlib.sha256(json.dumps([PROMPT_VERSION, os.getenv("AI_PROVIDER", "compatible"), os.getenv("AI_BASE_URL", ""), os.getenv("CODEX_BRIDGE_URL", ""), stage_settings(stage), instructions, payload, schema],
                                         ensure_ascii=False, sort_keys=True).encode()).hexdigest()
         path = self.directory / f"{key}.json" if self.directory else None
         if path and path.exists():
@@ -126,7 +126,7 @@ class Cache:
 
     def forget(self, stage, instructions, payload, schema):
         if self.directory:
-            key = hashlib.sha256(json.dumps([stage_settings(stage), instructions, payload, schema],
+            key = hashlib.sha256(json.dumps([PROMPT_VERSION, os.getenv("AI_PROVIDER", "compatible"), os.getenv("AI_BASE_URL", ""), os.getenv("CODEX_BRIDGE_URL", ""), stage_settings(stage), instructions, payload, schema],
                                             ensure_ascii=False, sort_keys=True).encode()).hexdigest()
             (self.directory / f"{key}.json").unlink(missing_ok=True)
 
@@ -197,11 +197,14 @@ def digest(note, full: bool):
     return {**entry, "headings": headings[:40], "beginning": text[:1500]}
 
 
-TOKEN = re.compile(r"margen-asset:[\w-]+|\d[\d.:/]*\d|`[^`\n]{2,80}`")
+TOKEN = re.compile(r"margen-asset:[\w-]+|(?<![\w])[-+]?\d+(?:[.,:/]\d+)*|`[^`\n]{2,80}`")
 
 
 def required_tokens(source: str) -> set[str]:
     """Literal items a faithful rewrite or translation must keep: data, code and images."""
+    assets = set(re.findall(r"margen-asset:[\w-]+", source))
+    # List numbering is formatting; values in prose, tables and code are data.
+    source = re.sub(r"^([ \t]*)\d+[.)] +", r"\1", source, flags=re.M)
     # The H1 repeats the article title, which the layout already shows.
     source = re.sub(r"^# .*$", "", source, flags=re.M)
     # Long unbroken strings are base64 blobs or hashes pasted by accident, not data to keep.
@@ -211,12 +214,14 @@ def required_tokens(source: str) -> set[str]:
     # a PDF and may become a translated table, so only their data is required.
     for block in re.findall(r"```[ \t]*[\w+-]+[^\n]*\n(.*?)```", source, re.S):
         tokens.update(" ".join(line.split()) for line in block.splitlines() if len(line.strip()) >= 4)
-    return {t for t in tokens if t}
+    return {t for t in tokens if t} | assets
 
 
 def missing_tokens(source: str, written: str) -> list[str]:
     flat = " ".join(written.split())
-    return sorted(t for t in required_tokens(source) if t not in flat)
+    return sorted(t for t in required_tokens(source) if not (
+        re.search(r"(?<![\d.,:/])" + re.escape(t) + r"(?!\d|[.,:/]\d)", flat)
+        if re.fullmatch(r"[-+]?\d+(?:[.,:/]\d+)*", t) else t in flat))
 
 
 def make_outline(request: PublicationRequest, cache: Cache):
@@ -235,6 +240,11 @@ def make_outline(request: PublicationRequest, cache: Cache):
         try:
             outline = Outline.model_validate(result)
             EditorialPlan(**outline.model_dump(exclude={"briefs"})).verify_outline(request)
+            known = {n.id for n in request.notes}
+            if len(outline.briefs) != len(known) or {b.source_id for b in outline.briefs} != known:
+                raise ValueError("El plan necesita una ficha editorial por nota, exactamente una vez.")
+            if any(not set(b.connections).issubset(known) for b in outline.briefs):
+                raise ValueError("Una conexión editorial apunta a una nota desconocida.")
             return outline
         except (ValidationError, ValueError) as exc:
             cache.forget("plan", instructions, attempt_payload, schema)
@@ -302,15 +312,21 @@ class Writer:
                     request.study_aids != "none" and not part.aids.strip():
                 cache.forget("write", self.instructions, attempt_payload, self.schema)
                 continue
-            missing = missing_tokens(source, part.markdown) if self.check else []
+            missing = missing_tokens(source, part.markdown) if self.check else (
+                sorted(t for t in re.findall(r"margen-asset:[\w-]+", source) if t not in part.markdown)
+                if request.writing_mode == "review" else [])
             if best is None or len(missing) < len(best_missing):
                 best, best_missing = part, missing
-            if len(missing) < 3 or len(missing) <= len(required_tokens(source)) * 0.15:
+            if not missing:
                 break
+            cache.forget("write", self.instructions, attempt_payload, self.schema)
         if best is None:
             # Finished parts stay cached: a retry only redoes what is missing.
             raise ValueError(f"La IA no completó la redacción de «{self.notes[source_id].title}». "
                              "Reintenta la edición; las partes terminadas se reutilizarán.") from error
+        if best_missing:
+            raise ValueError("La adaptación sigue omitiendo datos, comandos o imágenes de la fuente. "
+                             "No se ha publicado ni enviado. Reintenta o utiliza Notas originales.")
         return best
 
 

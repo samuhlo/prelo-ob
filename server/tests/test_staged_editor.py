@@ -14,7 +14,7 @@ def note(identifier, markdown):
 
 
 def outline(request, **extra):
-    return {"title": "Redes", "subtitle": "", "visuals": [], "briefs": [],
+    return {"title": "Redes", "subtitle": "", "visuals": [], "briefs": [{"source_id": n.id, "title": n.title, "summary": "", "connections": []} for n in request.notes],
             "chapters": [{"title": "Todo", "source_ids": [n.id for n in request.notes]}], **extra}
 
 
@@ -66,7 +66,7 @@ def test_outline_digests_large_selections_and_retries_invalid_plans(ai, monkeypa
     def complete(stage, instructions, payload, schema):
         payloads.append(payload)
         ids = ["a"] if len(payloads) == 1 else ["a", "b"]
-        return {"title": "Redes", "subtitle": "", "visuals": [], "briefs": [],
+        return {"title": "Redes", "subtitle": "", "visuals": [], "briefs": [{"source_id": n.id, "title": n.title, "summary": "", "connections": []} for n in request.notes],
                 "chapters": [{"title": "Todo", "source_ids": ids}]}
     monkeypatch.setattr(editor, "complete", complete)
     plan = plan_publication(request)

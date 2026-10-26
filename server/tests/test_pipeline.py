@@ -119,7 +119,7 @@ def test_invalid_ai_outline_cannot_lose_or_duplicate_notes():
 def test_ai_integration_with_provider_fixture(monkeypatch):
     monkeypatch.setenv("AI_BASE_URL", "http://local-model/v1")
     monkeypatch.setenv("AI_MODEL", "configured-model")
-    plan = {"title": "Otro", "subtitle": "Una lectura", "chapters": [{"title": "Docker", "source_ids": ["b", "a"]}]}
+    plan = {"title": "Otro", "subtitle": "Una lectura", "briefs": [{"source_id": i, "title": i, "summary": "", "connections": []} for i in ["a", "b"]], "chapters": [{"title": "Docker", "source_ids": ["b", "a"]}]}
     def post(self, url, **kwargs):
         assert url == "http://local-model/v1/chat/completions"
         assert kwargs["json"]["response_format"]["json_schema"]["strict"]

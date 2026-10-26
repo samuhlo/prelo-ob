@@ -52,3 +52,11 @@ El aviso aparece en Prelo y en Ajustes, con «Actualizar ahora» y un enlace a l
 El protocolo de gestión del lector requiere un inventario reciente con identificador del dispositivo y SHA-256 del archivo. Cada orden se asocia al lector en la tabla adicional `kobo_command_targets`, conservando los identificadores y filas anteriores. Al adoptar un catálogo anterior, las órdenes pendientes sin destino pasan a fallidas con un aviso; deben solicitarse de nuevo tras conectar el lector. No se ejecutan automáticamente.
 
 El conector reclama una orden antes de modificar archivos. Una cancelación solo se confirma antes de la reclamación; una orden en ejecución se recupera para el mismo lector con el mismo identificador de reclamación. Los resultados se pueden confirmar de nuevo. Un archivo que cambió se conserva. Los conectores antiguos que consultan órdenes sin identificar el dispositivo no reciben órdenes. Actualiza servicio, conector y plugin conjuntamente; no rebajes solo el servidor después de activar este protocolo.
+
+## Comprobación editorial de la beta
+
+Los prompts llevan una versión explícita y la caché distingue proveedor y destino. Antes de redactar se comprueba que el plan incluya una ficha por nota y conexiones conocidas. Los modos de adaptación fiel requieren conservar los literales detectados (cifras, comandos e imágenes); si siguen faltando tras un reintento se rechaza la edición antes de publicarla o ponerla en cola. Repaso rápido permite condensar datos, pero conserva las referencias a imágenes. El modo original mantiene su cuerpo.
+
+Estas comprobaciones no demuestran equivalencia semántica: negaciones, condiciones, relaciones y explicaciones añadidas necesitan revisión. El corpus sintético de pruebas cubre números de un dígito, cifras incrustadas en otras, valores negativos, comandos, imágenes con identificadores largos, planificación incompleta y caché por proveedor. Antes de una candidata, ejecutar también una muestra real con notas ficticias en castellano y gallego y revisar datos, negaciones, idioma y contenido añadido. Nunca usar notas privadas en CI.
+
+La maquetación se verifica con EPUBCheck y con `check_caption_layout.py` a varios tamaños. Un render en MuPDF no equivale a un Kobo físico; la comprobación del lector sigue siendo independiente.
