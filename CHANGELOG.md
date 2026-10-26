@@ -1,5 +1,12 @@
 # Cambios
 
+## Sin publicar
+
+- El estado de cada revista enviada refleja lo que hay en el Kobo: «Copiada · aparecerá al desconectar el Kobo», «En tu Kobo» con el porcentaje leído, «el Kobo no la importó» o «Ya no está en el Kobo», con la opción de volver a enviarla. El conector del Mac lee la base del lector en cada conexión.
+- Preparar revista empieza con «Empezar una revista» y la lista «Para retomar». Al cerrar Prelo, la revista a medias se guarda como borrador compartido y desaparecen los marcadores de selección; si el Mac no responde, se guarda en el equipo hasta poder compartirla.
+- «Guardar y salir» y «Descartar» durante la preparación; al crear la revista se retira su borrador.
+- Una edición en marcha se puede cancelar desde Prelo; se detiene al terminar la parte en curso.
+
 ## 0.9.1 — Actualizar desde Obsidian
 
 - «Actualizar ahora» instala la nueva versión del plugin en el propio Obsidian: descarga la release, comprueba sus sumas SHA-256 y reinicia Prelo. «Novedades» abre la release en GitHub.
