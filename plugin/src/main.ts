@@ -10,7 +10,7 @@ import { apiErrorMessage, validateNoteSizes, appendHighlight, hash, readHighligh
 import { writingModes, studyAids, WritingMode, StudyAids, Language } from "./editorial";
 import { Composer, MARGEN_ICON, STUDIO_TYPE, StudioTab, StudioView } from "./studio";
 import { draftFromComposer, emptyComposer } from "./session";
-import { addPaths, renamePaths } from "./selection";
+import { addPaths, noteTitle, renamePaths } from "./selection";
 import type { KoboPlace } from "./delivery";
 import type { KoboBook } from "./reader";
 import { findUpdate, installable, PLUGIN_FILES, RELEASES_API, RELEASES_URL, ReleaseUpdate, UPDATE_INTERVAL, verifyUpdate } from "./updates";
@@ -67,6 +67,8 @@ export default class Prelo extends Plugin {
   private modals = new Set<Modal>();
   private saveQueue: Promise<void> = Promise.resolve();
   async onload() {
+    // Enabled or updated in a running workspace: its Prelo tab is restored after this load.
+    const reloading = this.app.workspace.layoutReady;
     const stored = await this.loadData();
     this.state = { settings: { ...DEFAULTS, ...stored?.settings }, sources: stored?.sources ?? {},
       importNotes: stored?.importNotes ?? {}, lastImport: stored?.lastImport, lastMigration: stored?.lastMigration,
@@ -138,7 +140,7 @@ export default class Prelo extends Plugin {
       const file = this.app.workspace.getActiveFile();
       if (this.isEligible(file)) this.lastNote = file;
       this.updateNoteActions();
-      void this.leftStudio();
+      if (!reloading) void this.leftStudio();
       if (!this.state.visualWelcomeSeen) {
         this.state.visualWelcomeSeen = true;
         void this.save().then(() => this.openStudio("compose")).catch(() => new Notice("No se ha podido guardar el estado de Prelo."));
@@ -512,9 +514,8 @@ export default class Prelo extends Plugin {
       let markdown = raw;
       for (const replacement of replacements.sort((a, b) => b.start - a.start))
         markdown = markdown.slice(0, replacement.start) + replacement.value + markdown.slice(replacement.end);
-      // A malformed first heading (e.g. a pasted paragraph) must not reject the whole edition.
-      const heading = cache?.headings?.find(h => h.level === 1)?.heading.trim();
-      const title = (heading && heading.length <= 200 ? heading : file.basename).slice(0, 200);
+      // A malformed first heading must not reject the whole edition.
+      const title = noteTitle(cache?.headings?.find(h => h.level === 1)?.heading, file.basename).slice(0, 200);
       notes.push({ id: idByPath.get(file.path)!, path: file.path, title, markdown, original_sha256: hash(raw) });
     }
     validateNoteSizes(notes.map(note => note.markdown));

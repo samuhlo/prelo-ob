@@ -6,7 +6,7 @@ import { deliveryState } from "./delivery";
 import { composerFromDraft, emptyComposer, resumable } from "./session";
 import { BookFilter, bookStatus, commandLabel, KoboBook, KoboOverview, visibleBooks } from "./reader";
 import { compareVersions } from "./updates";
-import { matchesSearch, movePath } from "./selection";
+import { matchesSearch, movePath, noteTitle } from "./selection";
 import { appendPreloLogo } from "./brand";
 import { writingModes, studyAids, languages, WritingMode, StudyAids, Language, adaptsContent, needsEditorialAI, looksGalician } from "./editorial";
 
@@ -253,7 +253,7 @@ export class StudioView extends ItemView {
     setIcon(tip.createSpan(), "mouse-pointer-2");
     tip.createSpan({ text: "También puedes seleccionar notas en el explorador y usar clic derecho → Añadir a Prelo." });
   }
-  private title(file: TFile) { return this.app.metadataCache.getFileCache(file)?.headings?.find(h => h.level === 1)?.heading || file.basename; }
+  private title(file: TFile) { return noteTitle(this.app.metadataCache.getFileCache(file)?.headings?.find(h => h.level === 1)?.heading, file.basename); }
   private renderNotes() {
     if (!this.notesEl) return;
     const scroll = this.notesEl.scrollTop;
@@ -275,7 +275,8 @@ export class StudioView extends ItemView {
       checkbox.checked = paths.includes(file.path);
       const text = row.createDiv({ cls: "margen-pick-copy" });
       text.createEl("strong", { text: this.title(file) });
-      text.createEl("small", { text: file.parent?.path || "Raíz", attr: { title: file.path } });
+      // The vault root reports its path as "/".
+      text.createEl("small", { text: file.parent && file.parent.path !== "/" ? file.parent.path : "Raíz del vault", attr: { title: file.path } });
       checkbox.onchange = () => checkbox.checked ? this.plugin.addNotes([file], false) : this.plugin.removeNote(file.path);
     }
     if (!files.length) this.notesEl.createEl("p", { cls: "margen-empty-copy", text: this.onlySelected ? "No hay notas seleccionadas con este filtro." : "No encuentro notas con esa búsqueda. Prueba otro tema o carpeta." });
@@ -525,7 +526,7 @@ export class StudioView extends ItemView {
   }
   private renderLibrary() {
     const heading = this.page!.createDiv({ cls: "margen-library-heading" });
-    this.heading("", "Lecturas para llevar.", "Tu estantería personal, compartida entre equipos.", heading.createDiv());
+    this.heading("TU BIBLIOTECA", "Lecturas para llevar.", "Tu estantería personal, compartida entre equipos.", heading.createDiv());
     button(heading, "Nueva revista", () => { this.plugin.startComposer(); this.selectTab("compose"); }, "plus", "margen-primary");
     if (this.created) {
       const notice = this.page!.createDiv({ cls: "margen-success" });
@@ -573,9 +574,11 @@ export class StudioView extends ItemView {
     if (p.available === false) return;
     const actions = copy.createDiv({ cls: "margen-book-actions" });
     const queued = ["queued", "transferring"].includes(p.delivery || "");
-    button(actions, this.tab === "queue" ? "Ver lectura" : queued ? "Ver cola" : state.resend ? "Volver a enviar" : "Enviar al Kobo",
-      () => this.tab === "queue" ? this.plugin.preview(p) : queued ? this.selectTab("queue") : void this.act(p, "queue"),
-      this.tab === "queue" ? "book-open" : queued ? "check" : "send");
+    // Once copied, the Kobo tab is where the reader's copy is followed.
+    const delivered = p.delivery === "sent" && !state.resend;
+    button(actions, this.tab === "queue" ? "Ver lectura" : queued ? "Ver cola" : delivered ? "Ver en el Kobo" : state.resend ? "Volver a enviar" : "Enviar al Kobo",
+      () => this.tab === "queue" ? this.plugin.preview(p) : queued || delivered ? this.selectTab("queue") : void this.act(p, "queue"),
+      this.tab === "queue" ? "book-open" : queued ? "check" : delivered ? "tablet" : "send");
     iconButton(actions, "ellipsis", `Opciones de ${p.title}`, event => {
       const menu = new Menu();
       menu.addItem(item => item.setTitle("Ver portada e índice").setIcon("book-open").onClick(() => this.plugin.preview(p)));
@@ -643,7 +646,7 @@ export class StudioView extends ItemView {
     const orders = (this.kobo?.commands || []).filter(c => c.state === "pending" || c.state === "failed" && (!this.kobo?.at || (c.done_at ?? "") > this.kobo.at));
     this.page!.createEl("h2", { text: "Próxima conexión" });
     if (!queued.length && !orders.length)
-      this.emptyState(this.page!.createDiv({ cls: "margen-books" }), "No hay nada pendiente.", "Envía una revista desde la biblioteca o un EPUB desde aquí. No necesitas tener el Kobo conectado.");
+      this.page!.createEl("p", { cls: "margen-hint margen-inline-empty", text: "No hay nada pendiente. Envía una revista desde la biblioteca o un EPUB desde aquí; no necesitas tener el Kobo conectado." });
     if (queued.length) {
       const grid = this.page!.createDiv({ cls: "margen-books" });
       for (const p of queued) this.bookCard(grid, p);

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { addPaths, matchesSearch, movePath, renamePaths } from "../src/selection";
+import { addPaths, matchesSearch, movePath, noteTitle, renamePaths } from "../src/selection";
 
 test("adding from several entry points preserves order and avoids duplicate notes", () => {
   assert.deepEqual(addPaths(["a.md", "b.md"], ["b.md", "c.md", "a.md"]), ["a.md", "b.md", "c.md"]);
@@ -21,4 +21,11 @@ test("search finds the visible title and path without requiring accents", () => 
   assert.equal(matchesSearch("Qué empaqueta Docker", "07_Clases/tema_05.md", "que docker"), true);
   assert.equal(matchesSearch("Imágenes", "07_Clases/tema_05.md", "imagenes clases"), true);
   assert.equal(matchesSearch("Imágenes", "07_Clases/tema_05.md", "imagenes redes"), false);
+});
+
+test("a malformed first heading falls back to the file name", () => {
+  assert.equal(noteTitle("1.8.3. Que é SSH", "ssh"), "1.8.3. Que é SSH");
+  assert.equal(noteTitle("1.8.4. Que é o %=u2IWj6/EI/dozvKuY0BYoK2n71zVT4gxbVTT4mHbkmI51v3R5O", "1.8.4 DNS"), "1.8.4 DNS");
+  assert.equal(noteTitle("x".repeat(130), "larga"), "larga");
+  assert.equal(noteTitle(undefined, "nota"), "nota");
 });

@@ -26,3 +26,9 @@ export function matchesSearch(title: string, path: string, query: string): boole
   const haystack = clean(`${title} ${path}`);
   return clean(query).trim().split(/\s+/).every(word => haystack.includes(word));
 }
+
+// A malformed first heading (a pasted paragraph or an encoded blob) is not a title.
+export function noteTitle(heading: string | undefined, basename: string): string {
+  const text = heading?.trim();
+  return text && text.length <= 120 && !/\S{40,}/.test(text) ? text : basename;
+}
