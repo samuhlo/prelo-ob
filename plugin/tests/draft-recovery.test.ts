@@ -15,9 +15,9 @@ const code = buildSync({
   external: ["obsidian", "electron"], loader: { ".svg": "text", ".wasm": "binary" },
 }).outputFiles[0].text;
 const require = createRequire(import.meta.url);
-type Saved = { composer: Composer; parked?: Composer; parkedDrafts?: Composer[] };
+type Saved = { activeJob?: string; composer: Composer; parked?: Composer; parkedDrafts?: Composer[] };
 type Subject = {
-  state: Saved; app: unknown;
+  state: Saved; app: unknown; busy: boolean; cancelJob: () => Promise<void>;
   saveData: (value: Saved) => Promise<void>;
   api: (route: string, body?: Draft) => Promise<unknown>;
   parkComposer: (announce?: boolean) => Promise<void>;
@@ -133,4 +133,15 @@ test("simultaneous refreshes share a pending draft once", { timeout: 2000 }, asy
   await Promise.all([first, second]);
   assert.equal(calls, 1);
   assert.equal(localDrafts(plugin).length, 0);
+});
+
+
+test("a failed or merely requested cancellation keeps the job recoverable", async () => {
+  const { plugin } = subject({ composer: emptyComposer(), activeJob: "job-id" });
+  plugin.busy = false;
+  await plugin.cancelJob();
+  assert.equal(plugin.state.activeJob, "job-id");
+  plugin.api = async () => ({});
+  await plugin.cancelJob();
+  assert.equal(plugin.state.activeJob, "job-id");
 });

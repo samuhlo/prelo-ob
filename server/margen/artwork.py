@@ -17,6 +17,7 @@ from PIL import Image
 from pydantic import BaseModel, Field
 from .models import VisualBrief, Source, EditorialPlan, PublicationRequest
 from .codex_editor import SLOTS
+from .jobs import Cancelled
 
 ART_DIRECTION = (
     "Original illustration in the visual language of 1994 console-club magazines and "
@@ -151,7 +152,7 @@ def image_concurrency():
     return max(1, int(os.getenv("AI_IMAGE_CONCURRENCY", "3")))
 
 
-def generate_visuals(request: PublicationRequest, plan: EditorialPlan, cache_dir: Path, progress=None):
+def generate_visuals(request: PublicationRequest, plan: EditorialPlan, cache_dir: Path, progress=None, cancelled=lambda: False):
     if request.style != "retro90" or request.artwork != "generated":
         return []
     plan.verify_visuals(request)
@@ -164,6 +165,8 @@ def generate_visuals(request: PublicationRequest, plan: EditorialPlan, cache_dir
 
     def illustrate(brief):
         nonlocal done
+        if cancelled():
+            raise Cancelled()
         job = ArtworkRequest(title=plan.title, visual=brief, sources=[notes[i] for i in brief.source_ids])
         prompt = image_prompt(job)
         digest = hashlib.sha256(prompt.encode()).hexdigest()

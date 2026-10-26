@@ -283,6 +283,8 @@ class Writer:
         request, cache = self.request, self.cache
         best, best_missing, error = None, [], None
         for attempt in range(2):
+            if self.cancelled():
+                raise Cancelled()
             attempt_payload = {**payload, "missing": best_missing[:40]} if best_missing else payload
             try:
                 part = WrittenPart.model_validate(cache.call("write", self.instructions, attempt_payload, self.schema))
@@ -345,6 +347,8 @@ def plan_publication(request: PublicationRequest, cache_dir: Path | None = None,
         )
     if not ai_available():
         raise ValueError("Activa un proveedor de IA en el servidor para usar esta opción.")
+    if request.artwork == "generated" and os.getenv("AI_PROVIDER") not in {"codex-bridge", "codex-cli"}:
+        raise ValueError("Este proveedor solo genera texto. Usa Revista de estudio o configura Codex para las imágenes.")
     cache = Cache(cache_dir)
     progress("Preparando el plan editorial del número.")
     outline = make_outline(request, cache)

@@ -127,10 +127,12 @@ def _build_publication(request, edition_id, progress, cancelled):
                 raise ValueError("Queda poco espacio libre en el disco del servicio. Libera espacio antes de generar.")
         progress("Organizando el contenido y preparando la dirección visual." if request.use_ai or request.artwork == "generated" else "Preparando el cuaderno de estudio.")
         plan = plan_publication(request, data_root() / ".ai-cache", progress, cancelled)
-        illustrations = generate_visuals(request, plan, data_root() / ".art-cache", progress)
+        illustrations = generate_visuals(request, plan, data_root() / ".art-cache", progress, cancelled)
         progress("Maquetando la portada, los artículos y el índice.")
         record = build_epub(request, plan, edition_id, staging, illustrations)
         (staging / "manifest.json").write_text(json.dumps(record, ensure_ascii=False, indent=2))
+        if cancelled():
+            raise jobs.Cancelled()
         with library.LOCK:
             library.cleanup(data_root(), protected=[edition_id])
             staging.rename(data_root() / edition_id)
@@ -152,6 +154,8 @@ class JobSubmission(BaseModel):
 def submit_job(submission: JobSubmission):
     try:
         return jobs.submit(data_root(), submission.id, submission.publication, build_publication)
+    except jobs.QueueFull as exc:
+        raise HTTPException(429, str(exc))
     except ValueError as exc:
         raise HTTPException(422, str(exc))
 

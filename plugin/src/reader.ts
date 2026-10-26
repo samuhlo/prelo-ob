@@ -15,6 +15,7 @@ export function bookStatus(book: KoboBook, overview: KoboOverview): { text: stri
   if (commands.some(c => ["pending", "executing"].includes(c.state))) return { text: "Se quitará en la próxima conexión", removable: false };
   if (commands.some(c => c.state === "done" && overview.at && (c.done_at ?? "") > overview.at))
     return { text: "Quitado · desaparecerá al desconectar el Kobo", removable: false };
+  if (!book.present) return { text: "El archivo ya no está en el Kobo", removable: false };
   const reading = book.percent ? `${book.percent} % leído` : book.last_read ? "Empezado" : "Sin abrir";
   return { text: reading, removable: !!book.path };
 }

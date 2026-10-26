@@ -54,6 +54,7 @@ export class StudioView extends ItemView {
   private library?: Library;
   private drafts: Draft[] = [];
   private aiAvailable = false;
+  private imagesAvailable = false;
   private connection = "Conectando con tu biblioteca…";
   private error = "";
   private closed = false;
@@ -134,6 +135,7 @@ export class StudioView extends ItemView {
       this.drafts = drafts.json as Draft[];
       this.kobo = kobo;
       this.aiAvailable = !!status.json.ai_available;
+      this.imagesAvailable = !!status.json.image_generation_available;
       this.connection = "Biblioteca conectada";
       this.error = "";
       const current = this.library.jobs.find(j => j.id === this.plugin.state.activeJob);
@@ -446,13 +448,13 @@ export class StudioView extends ItemView {
   private updateCreateButton() {
     const c = this.plugin.state.composer;
     const needsAI = needsEditorialAI(c);
-    const blocked = !!this.error || !this.library || needsAI && !this.aiAvailable || !c.paths.length || c.paths.some(p => !(this.app.vault.getAbstractFileByPath(p) instanceof TFile));
+    const blocked = c.style === "retro90" && !this.imagesAvailable || !!this.error || !this.library || needsAI && !this.aiAvailable || !c.paths.length || c.paths.some(p => !(this.app.vault.getAbstractFileByPath(p) instanceof TFile));
     const button = this.contentEl.querySelector<HTMLButtonElement>(".margen-create-button");
     if (button) button.disabled = blocked;
     const summary = this.contentEl.querySelector<HTMLElement>(".margen-create-summary");
     if (summary) summary.setText(this.error ? "Sin conexión al Mac" : `${c.paths.length} notas · ${adaptsContent(c) ? `${writingModes[c.writingMode].label} · ${studyAids[c.studyAids].label} · IA` : c.style === "retro90" ? `Portada + ${c.paths.length} carátulas con IA` : c.intent.trim() ? "Instrucciones extra con IA" : c.useAI ? "Organización con IA" : "Sin IA"}`);
     const hint = this.contentEl.querySelector<HTMLElement>(".margen-create-hint");
-    if (hint) hint.setText(this.error ? this.error : needsAI && !this.aiAvailable ? "La IA del Mac no está disponible. Puedes usar Revista de estudio sin IA."
+    if (hint) hint.setText(this.error ? this.error : c.style === "retro90" && !this.imagesAvailable ? "Este proveedor no genera imágenes. Usa Revista de estudio o configura Codex en el Mac." : needsAI && !this.aiAvailable ? "La IA del Mac no está disponible. Puedes usar Revista de estudio sin IA."
       : c.intent.trim() ? "Se aplicarán tus instrucciones extra con IA, respetando la redacción elegida y el orden si lo has bloqueado."
       : adaptsContent(c) ? "La IA preparará la redacción y los apoyos elegidos. Revisa la adaptación antes de estudiar; puede tardar unos minutos."
       : c.style === "retro90" ? "Se creará una portada y una carátula retro por nota. Cuantas más notas, mayor tiempo y consumo de IA."

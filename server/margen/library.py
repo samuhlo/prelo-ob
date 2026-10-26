@@ -264,7 +264,7 @@ def on_kobo(record, books, seen):
     if seen is None or record["delivery"] != "sent":
         return None
     if record["id"] in books:
-        return "imported"
+        return "imported" if books[record["id"]].get("present", False) else "missing"
     if record["delivered_at"] and record["delivered_at"] > seen["at"]:
         return "copied"
     return "not_imported" if record["id"] in seen.get("unimported", []) else "missing"

@@ -283,14 +283,12 @@ export default class Prelo extends Plugin {
       new Notice("Cancelando la edición. Se detendrá al terminar la parte en curso.");
     } catch (error) {
       new Notice(error instanceof Error ? error.message : String(error));
+      return;
     }
-    // With no one waiting for the job here (for example after a restart), nothing is left running.
-    if (!this.busy) {
-      this.state.activeJob = undefined; await this.save();
-      for (const leaf of this.app.workspace.getLeavesOfType(STUDIO_TYPE))
-        if (leaf.view instanceof StudioView) leaf.view.selectionChanged();
-    }
+    // Keep recovery available until the server confirms a terminal state.
+    return;
   }
+
   undoComposer() {
     if (this.busy || !this.state.previousComposer) return;
     const previous = this.state.composer;
