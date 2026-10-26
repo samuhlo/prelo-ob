@@ -189,13 +189,30 @@ def append_notes(vault, folder, highlights):
     directory = relative(vault, folder)
     directory.mkdir(parents=True, exist_ok=True)
     by_group, source_paths = {}, {}
+    issues, blocked_keys, blocked_groups = [], set(), set()
     for path in directory.glob("*.md"):
         if "sync-conflict" in path.name or path.is_symlink():
             continue
-        identity = properties(path.read_text()).get("margen_lectura")
+        text = path.read_text()
+        try:
+            identity = properties(text).get("margen_lectura")
+            if identity is not None and not isinstance(identity, str):
+                raise ValueError()
+        except (yaml.YAMLError, ValueError):
+            issues.append({"kind": "invalid_frontmatter", "path": path.relative_to(vault).as_posix()})
+            blocked_keys.update(re.findall(r"<!-- margen:([a-f0-9]{64}):", text))
+            # An invalid note can still declare a recognizable group in its YAML prefix.
+            # Use it only to defer that group, never to assign provenance or rewrite the note.
+            header = re.match(r"\A\ufeff?---\r?\n(.*?)\r?\n---(?:\r?\n|$)", text, re.S)
+            if header:
+                group = re.search(r"^margen_lectura: *[\"']?([a-zA-Z0-9_-]{1,80})[\"']? *$", header[1], re.M)
+                if group:
+                    blocked_groups.add(group[1])
+            continue
         if identity:
             if identity in by_group:
-                raise ValueError("Hay dos notas con el mismo margen_lectura. Conserva ambas y revisa el conflicto.")
+                blocked_groups.add(identity)
+                issues.append({"kind": "duplicate_identity", "path": path.relative_to(vault).as_posix()})
             by_group[identity] = path
     needed = {h["source"]["id"] for h in highlights if h.get("source")}
     duplicates = set()
@@ -205,9 +222,11 @@ def append_notes(vault, folder, highlights):
         # Only read the YAML prefix when locating identities.
         with path.open() as stream:
             prefix = stream.read(16_384)
-        match = re.search(r'^margen_id:\s*["\']?([a-zA-Z0-9_-]+)', prefix, re.M)
-        if match and match[1] in needed:
-            identity = match[1]
+        try:
+            identity = properties(prefix).get("margen_id")
+        except yaml.YAMLError:
+            continue
+        if isinstance(identity, str) and identity in needed:
             if identity in source_paths:
                 duplicates.add(identity)
             source_paths[identity] = path.relative_to(vault).as_posix()
@@ -215,8 +234,11 @@ def append_notes(vault, folder, highlights):
         source_paths.pop(identity, None)
     groups = {}
     for h in highlights:
+        if h["key"] in blocked_keys:
+            continue
         group = h["source"]["id"] if h.get("source") else digest(h["volume_id"])[:20]
-        groups.setdefault(group, []).append(h)
+        if group not in blocked_groups:
+            groups.setdefault(group, []).append(h)
     added, unresolved = 0, 0
     for group, items in groups.items():
         first = items[0]
@@ -226,8 +248,11 @@ def append_notes(vault, folder, highlights):
             source = source_paths.get(group)
             candidate = relative(vault, first["source"]["path"])
             if not source and candidate.is_file():
-                identity = properties(candidate.read_text()).get("margen_id")
-                if identity in {None, group}:
+                try:
+                    identity = properties(candidate.read_text()).get("margen_id")
+                except yaml.YAMLError:
+                    identity = "invalid"
+                if identity is None or identity == group:
                     source = first["source"]["path"]
         unresolved += sum(bool(h.get("source") and not source or h["match"] == "unresolved") for h in items)
         target = by_group.get(group)
@@ -277,7 +302,8 @@ def append_notes(vault, folder, highlights):
                 stream.flush()
                 os.fsync(stream.fileno())
         added += count
-    return {"examined": len(highlights), "added": added, "unresolved": unresolved}
+    return {"examined": len(highlights), "added": added, "unresolved": unresolved,
+            "skipped": len(highlights) - sum(map(len, groups.values())), "issues": issues}
 
 
 class Worker:
@@ -351,7 +377,9 @@ class Worker:
                 summary.append(f"{sent} revistas copiadas")
             if changes:
                 summary.append(f"{changes} cambios aplicados")
-            self.report("ready", " · ".join(summary) + (". Los cambios aparecerán al desconectar el Kobo." if sent or changes else "."), device)
+            if result["issues"]:
+                summary.append(f"{len(result['issues'])} notas necesitan revisar sus propiedades; se conservan las citas en el servicio")
+            self.report("error" if result["issues"] else "ready", " · ".join(summary) + (". Los cambios aparecerán al desconectar el Kobo." if sent or changes else "."), device)
             if self.config.get("auto_eject", True):
                 subprocess.run(["/usr/sbin/diskutil", "eject", str(mount)], check=True, capture_output=True, timeout=25)
             return self.last_sync

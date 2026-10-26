@@ -71,14 +71,31 @@ def database(root):
             db.close()
 
 
-def records(root):
+def records(root, issues=None):
     with database(root) as db:
         result = []
         for path in Path(root).glob("*/manifest.json"):
             if path.parent.name.startswith("."):
                 continue
-            record = json.loads(path.read_text())
-            edition(record["id"])
+            try:
+                record = json.loads(path.read_text())
+                identity = edition(record["id"])
+                if identity != path.parent.name or record["filename"] != f"margen-{identity}.epub":
+                    raise ValueError()
+                datetime.fromisoformat(record["created_at"])
+                for field in ("title", "subtitle"):
+                    if not isinstance(record[field], str):
+                        raise ValueError()
+                if not isinstance(record["sources"], list):
+                    raise ValueError()
+                for source in record["sources"]:
+                    for field in ("id", "path", "title", "sha256", "href", "text"):
+                        if not isinstance(source[field], str):
+                            raise ValueError()
+            except (OSError, ValueError, KeyError, TypeError, AttributeError):
+                if issues is not None:
+                    issues.append({"edition": path.parent.name, "kind": "invalid_manifest"})
+                continue
             db.execute("INSERT OR IGNORE INTO editions(id) VALUES (?)", (record["id"],))
             state = dict(db.execute("SELECT * FROM editions WHERE id=?", (record["id"],)).fetchone())
             book = path.parent / record["filename"]
@@ -290,7 +307,8 @@ def request_sync(root):
 
 
 def dashboard(root):
-    catalogue = records(root)
+    issues = []
+    catalogue = records(root, issues)
     with database(root) as db:
         events = [dict(r) for r in db.execute("SELECT * FROM events ORDER BY id DESC LIMIT 30")]
     seen = inventory(root)
@@ -298,7 +316,7 @@ def dashboard(root):
     return {"publications": [{**{k: r.get(k) for k in
             ("id", "title", "subtitle", "created_at", "style", "writing_mode", "study_aids", "filename", "available", "bytes", "pinned", "delivery", "delivered_at", "archived_at")},
             "on_kobo": on_kobo(r, books, seen), "percent_read": books.get(r["id"], {}).get("percent")}
-            for r in catalogue], "storage": storage(root), "device": device_state(root),
+            for r in catalogue], "storage": storage(root), "device": device_state(root), "issues": issues,
             "kobo": {"at": seen["at"], "books": seen["books"]} if seen else None,
             "events": [{**r, "data": json.loads(r["data"])} for r in events]}
 
@@ -317,7 +335,10 @@ def backup(root):
     import os
     import zipfile
     with LOCK:
-        catalogue = records(root)
+        issues = []
+        catalogue = records(root, issues)
+        if issues:
+            raise ValueError("Hay fichas dañadas. Repara o recupera esas ediciones antes de sustituir el backup anterior.")
         with database(root) as db:
             uploads = [dict(r) for r in db.execute("SELECT id,sha256 FROM kobo_commands WHERE kind='upload' AND state IN ('pending','executing','failed')")]
         upload_files = []

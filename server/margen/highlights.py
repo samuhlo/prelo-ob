@@ -15,7 +15,11 @@ def resolve(highlight: Highlight, publications: dict):
     if publication:
         location = unquote(highlight.content_id + " " + highlight.start_path)
         candidates = [s for s in publication["sources"] if PurePosixPath(s["href"]).name in location]
-        if len(candidates) == 1:
+        anchored = [s for s in candidates or publication["sources"] if re.search(
+            r"(?<![\w-])(?:" + re.escape(s.get("anchor", "n_" + s["id"])) + r"|b_" + re.escape(s["id"]) + r"_\d+)(?=$|[^\w.-])", location)]
+        if len(anchored) == 1:
+            source, method = anchored[0], "anchor"
+        elif len(candidates) == 1:
             source, method = candidates[0], "chapter"
         elif highlight.text.strip():
             # Short notes can share a file: search the quote among them first.

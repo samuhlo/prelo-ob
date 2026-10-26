@@ -25,6 +25,7 @@ export type Composer = {
 export { emptyComposer } from "./session";
 type Library = {
   version?: string;
+  issues?: { edition: string; kind: string }[];
   publications: Publication[];
   device: { state: string; message: string; heartbeat_at?: string; last_sync?: { at: string; added: number; sent: number } };
   storage: { used_bytes: number; limit_bytes: number };
@@ -538,6 +539,8 @@ export class StudioView extends ItemView {
       notice.createSpan({ text: `Ya está lista: ${this.created.title}` });
       button(notice, "Ver portada e índice", () => this.plugin.preview(this.created!));
     }
+    if (this.library?.issues?.length)
+      this.page!.createEl("p", { cls: "margen-warnings", text: `${this.library.issues.length} fichas de edición necesitan recuperarse desde una copia. Las demás lecturas siguen disponibles.` });
     this.renderJobs();
     const toolbar = this.page!.createDiv({ cls: "margen-library-toolbar" });
     const search = toolbar.createEl("input", { type: "search", placeholder: "Buscar una lectura…", attr: { "aria-label": "Buscar en la biblioteca" } });

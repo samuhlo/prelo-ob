@@ -95,7 +95,10 @@ def load_publication(edition_id):
     path = data_root() / edition_id / "manifest.json"
     if not path.exists():
         raise HTTPException(404, "Edición no encontrada.")
-    return next(r for r in library.records(data_root()) if r["id"] == edition_id)
+    record = next((r for r in library.records(data_root()) if r["id"] == edition_id), None)
+    if record is None:
+        raise HTTPException(409, "La ficha de esta edición está dañada. Recupérala desde una copia.")
+    return record
 
 
 @app.get("/v1/publications", dependencies=[Depends(auth)])
@@ -226,7 +229,7 @@ def artwork_image(edition_id: str, artwork_id: str):
 
 @app.post("/v1/highlights/resolve", dependencies=[Depends(auth)])
 def resolve_highlights(request: HighlightsRequest):
-    records = {p.parent.name: json.loads(p.read_text()) for p in data_root().glob("*/manifest.json") if not p.parent.name.startswith(".")}
+    records = {r["id"]: r for r in library.records(data_root())}
     return {"highlights": [resolve(h, records) for h in request.highlights]}
 
 
