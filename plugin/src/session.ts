@@ -18,9 +18,21 @@ export const composerFromDraft = (d: Draft): Composer => ({
 
 export type Resumable = { draft: Draft; local: boolean };
 
-// A selection parked while the Mac was unreachable stays on this computer until it can be shared.
-export function resumable(drafts: Draft[], parked?: Composer): Resumable[] {
-  const shared = drafts.map(draft => ({ draft, local: false }));
-  if (!parked?.draftId || !parked.paths.length || drafts.some(d => d.id === parked.draftId)) return shared;
-  return [{ draft: draftFromComposer(parked, parked.draftId), local: true }, ...shared];
+// Keep the original single-draft field readable; additional selections are stored alongside it.
+export function parkedComposers(parked?: Composer, others: Composer[] = []): Composer[] {
+  const found = new Map<string, Composer>();
+  for (const composer of [parked, ...others])
+    if (composer?.draftId && composer.paths.length && !found.has(composer.draftId))
+      found.set(composer.draftId, composer);
+  return [...found.values()];
+}
+
+// Unsynced local revisions take precedence over older shared copies of the same draft.
+export function resumable(drafts: Draft[], parked?: Composer, others: Composer[] = []): Resumable[] {
+  const pending = parkedComposers(parked, others);
+  const ids = new Set(pending.map(c => c.draftId));
+  return [
+    ...pending.map(c => ({ draft: draftFromComposer(c, c.draftId!), local: true })),
+    ...drafts.filter(d => !ids.has(d.id)).map(draft => ({ draft, local: false })),
+  ];
 }

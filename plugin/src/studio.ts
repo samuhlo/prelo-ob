@@ -503,7 +503,7 @@ export class StudioView extends ItemView {
     const previous = this.plugin.state.previousComposer;
     if (previous?.paths.length)
       button(start, `Recuperar la última selección (${previous.paths.length} ${previous.paths.length === 1 ? "nota" : "notas"})`, () => this.plugin.undoComposer(), "undo-2");
-    const pending = resumable(this.drafts, this.plugin.state.parked);
+    const pending = resumable(this.drafts, this.plugin.state.parked, this.plugin.state.parkedDrafts);
     const list = this.page!.createDiv({ cls: "margen-drafts" });
     list.createEl("h2", { text: "Para retomar" });
     if (!pending.length) list.createEl("p", { cls: "margen-hint", text: "Cuando salgas de una revista sin terminarla, aparecerá aquí, en cualquiera de tus equipos." });
@@ -517,8 +517,10 @@ export class StudioView extends ItemView {
         draft.updated_at ? date(draft.updated_at) : "", local ? "Solo en este equipo" : ""].filter(Boolean).join(" · ") });
       button(row, "Retomar", () => this.plugin.resumeComposer(composerFromDraft(draft)), "arrow-right");
       iconButton(row, "trash-2", "Descartar borrador", () => void this.plugin.run(async () => {
-        if (local) { this.plugin.state.parked = undefined; await this.plugin.save(); }
-        else await this.plugin.api(`/v1/drafts/${draft.id}`, undefined, "DELETE");
+        // A newer local revision can hide a shared copy; discard that copy before dropping the local one.
+        if (!local || this.drafts.some(shared => shared.id === draft.id))
+          await this.plugin.api(`/v1/drafts/${draft.id}`, undefined, "DELETE");
+        if (local) { this.plugin.removeParkedDraft(draft.id); await this.plugin.save(); }
         await this.refresh(true);
         this.render();
       }));

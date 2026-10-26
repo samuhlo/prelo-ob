@@ -9,7 +9,7 @@ import { openKoboDatabase } from "./sqlite";
 import { apiErrorMessage, validateNoteSizes, appendHighlight, hash, readHighlights, ResolvedHighlight, highlightFilename, modernizeHighlightDates, safeRelative } from "./core";
 import { writingModes, studyAids, WritingMode, StudyAids, Language } from "./editorial";
 import { Composer, MARGEN_ICON, STUDIO_TYPE, StudioTab, StudioView } from "./studio";
-import { draftFromComposer, emptyComposer } from "./session";
+import { draftFromComposer, emptyComposer, parkedComposers } from "./session";
 import { addPaths, noteTitle, renamePaths } from "./selection";
 import type { KoboPlace } from "./delivery";
 import type { KoboBook } from "./reader";
@@ -27,8 +27,9 @@ type ImportReceipt = { completedAt: string; examined: number; added: number; unr
 type State = { settings: Settings; sources: Record<string, string>; importNotes: Record<string, string>; lastImport?: ImportReceipt;
   activeJob?: string;
   composer: Composer; previousComposer?: Composer;
-  // A selection left when Prelo closed while the Mac was unreachable.
+  // The newest local draft retains the legacy field; the rest wait alongside it.
   parked?: Composer;
+  parkedDrafts?: Composer[];
   visualWelcomeSeen?: boolean;
   lastMigration?: { completedAt: string; notes: number; renamed: number; dates: number; backup: string } };
 export type Publication = {
@@ -66,6 +67,7 @@ export default class Prelo extends Plugin {
   private ribbon?: HTMLElement;
   private modals = new Set<Modal>();
   private saveQueue: Promise<void> = Promise.resolve();
+  private sharingParked?: Promise<void>;
   async onload() {
     // Enabled or updated in a running workspace: its Prelo tab is restored after this load.
     const reloading = this.app.workspace.layoutReady;
@@ -73,6 +75,7 @@ export default class Prelo extends Plugin {
     this.state = { settings: { ...DEFAULTS, ...stored?.settings }, sources: stored?.sources ?? {},
       importNotes: stored?.importNotes ?? {}, lastImport: stored?.lastImport, lastMigration: stored?.lastMigration,
       composer: { ...emptyComposer(), ...stored?.composer }, previousComposer: stored?.previousComposer, parked: stored?.parked,
+      parkedDrafts: stored?.parkedDrafts ?? [],
       visualWelcomeSeen: stored?.visualWelcomeSeen ?? false };
     this.state.composer.paths = [...new Set<string>((this.state.composer.paths || []).filter((p: unknown) => typeof p === "string"))];
     this.state.activeJob = stored?.activeJob;
@@ -215,10 +218,22 @@ export default class Prelo extends Plugin {
     if (!this.state.composer.active) this.changeComposer({ ...emptyComposer(), active: true });
   }
   resumeComposer(composer: Composer) {
+    if (this.busy) return void new Notice("Espera a que termine la operación actual antes de retomar otra revista.");
     if (this.state.composer.active && this.state.composer.paths.length)
       return void new Notice("Termina o guarda la revista que estás preparando antes de retomar otra.");
-    if (this.state.parked?.draftId === composer.draftId) this.state.parked = undefined;
+    if (composer.draftId) this.removeParkedDraft(composer.draftId);
     this.changeComposer(composer);
+  }
+  private localComposers() {
+    return parkedComposers(this.state.parked, this.state.parkedDrafts);
+  }
+  private setParkedDrafts(composers: Composer[]) {
+    const [newest, ...others] = composers;
+    this.state.parked = newest;
+    this.state.parkedDrafts = others;
+  }
+  removeParkedDraft(id: string, expected?: Composer) {
+    this.setParkedDrafts(this.localComposers().filter(c => c.draftId !== id || expected !== undefined && c !== expected));
   }
   discardComposer() {
     const c = this.state.composer;
@@ -232,11 +247,11 @@ export default class Prelo extends Plugin {
     this.state.composer = emptyComposer();
     if (!c.paths.length) { await this.save(); return this.notifySelection(); }
     const draft = draftFromComposer(c, c.draftId || randomUUID());
-    this.state.parked = { ...c, draftId: draft.id, active: false };
+    this.setParkedDrafts([{ ...c, draftId: draft.id, active: false },
+      ...this.localComposers().filter(p => p.draftId !== draft.id)]);
     await this.save(); this.notifySelection();
     try {
-      await this.api("/v1/drafts", draft);
-      if (this.state.parked?.draftId === draft.id) { this.state.parked = undefined; await this.save(); }
+      await this.shareParked();
     } catch { /* kept on this computer; shared on the next refresh */ }
     if (announce) new Notice("Tu revista a medias se ha guardado. Retómala desde Preparar revista.");
     this.notifySelection();
@@ -246,10 +261,19 @@ export default class Prelo extends Plugin {
     await this.parkComposer();
   }
   async shareParked() {
-    const parked = this.state.parked;
-    if (!parked?.draftId || !parked.paths.length) return;
-    await this.api("/v1/drafts", draftFromComposer(parked, parked.draftId));
-    if (this.state.parked === parked) { this.state.parked = undefined; await this.save(); }
+    if (this.sharingParked) return this.sharingParked;
+    this.sharingParked = this.flushParked();
+    try { await this.sharingParked; }
+    finally { this.sharingParked = undefined; }
+  }
+  private async flushParked() {
+    for (const parked of this.localComposers()) {
+      if (!this.localComposers().includes(parked)) continue;
+      await this.api("/v1/drafts", draftFromComposer(parked, parked.draftId!));
+      // An acknowledgement for an older revision must never remove a newer local one.
+      this.removeParkedDraft(parked.draftId!, parked);
+      await this.save();
+    }
   }
   async cancelJob() {
     const id = this.state.activeJob;
