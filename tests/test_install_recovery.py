@@ -16,6 +16,7 @@ def setup(tmp_path, monkeypatch):
     home=tmp_path/'home';home.mkdir()
     monkeypatch.setattr(Path,'home',classmethod(lambda cls:home))
     monkeypatch.setattr(install_usb.sys,'platform','darwin')
+    monkeypatch.setattr(transaction.os,'getuid',lambda:501,raising=False)
     vault=tmp_path/'vault';(vault/'.obsidian/plugins/margen').mkdir(parents=True)
     plugin=vault/'.obsidian/plugins/margen'
     for name in ['main.js','styles.css','manifest.json']:(plugin/name).write_text('old-'+name)
