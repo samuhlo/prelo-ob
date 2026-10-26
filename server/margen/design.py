@@ -1,15 +1,35 @@
 """Deterministic typography around content-specific generated artwork."""
+import base64
 import html
+import io
 import textwrap
+from functools import cache
+from pathlib import Path
+from PIL import Image, ImageColor, ImageDraw, ImageFont, ImageOps
+
+# Liberation Sans is installed in the service image; Arial shares its metrics on a Mac.
+FONTS = {
+    "regular": ["/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+                "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+                "/System/Library/Fonts/Supplemental/Arial.ttf"],
+    "bold": ["/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+             "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
+             "/System/Library/Fonts/Supplemental/Arial Bold.ttf"],
+}
 
 
-def text_lines(text, x, y, width=32, size=42, leading=None, color="#142b36", weight="400", limit=None):
+def wrapped(text, width, limit=None):
     lines = textwrap.wrap(text, width, break_long_words=True) or [""]
     if limit:
         truncated = len(lines) > limit
         lines = lines[:limit]
         if truncated:
             lines[-1] = lines[-1].rstrip(" ,.;") + "…"
+    return lines
+
+
+def text_lines(text, x, y, width=32, size=42, leading=None, color="#142b36", weight="400", limit=None):
+    lines = wrapped(text, width, limit)
     return "".join(
         f'<text x="{x}" y="{y + i * (leading or size * 1.2):.1f}" font-size="{size}" '
         f'font-weight="{weight}" fill="{color}">{html.escape(line)}</text>'
@@ -78,26 +98,112 @@ def cover_svg(plan, issue_date, style, artwork=None, language="es"):
 </g></svg>"""
 
 
+@cache
+def font(weight, size):
+    for path in FONTS["bold" if weight in {"700", "900"} else "regular"]:
+        if Path(path).is_file():
+            return ImageFont.truetype(path, size)
+    # Pillow's own face lacks accents, but the page stays readable.
+    return ImageFont.load_default(size)
 
-def opener_svg(eyebrow, title, image_href):
-    """Inline SVG page: art, section and title composed together, so a portrait
-    illustration never leaves its title or caption alone on another page."""
+
+class Canvas:
+    """The SVG layout's coordinates, painted at the reader's resolution."""
+
+    def __init__(self, width, height, scale, art=None):
+        self.scale = scale
+        self.image = Image.new("RGBA", (self.px(width), self.px(height)), "#075579")
+        if art:
+            with Image.open(io.BytesIO(art)) as picture:
+                self.image.paste(ImageOps.fit(picture.convert("RGBA"), self.image.size, Image.LANCZOS))
+        self.draw = ImageDraw.Draw(self.image)
+
+    def px(self, value):
+        return round(value * self.scale)
+
+    def gradient(self, x, y, width, height, stops):
+        """Vertical shade from (offset, colour, opacity) stops, like an SVG linearGradient."""
+        rows = max(1, self.px(height))
+        column = Image.new("RGBA", (1, rows))
+        for row in range(rows):
+            t = row / max(1, rows - 1)
+            (a, start, alpha), (b, end, beta) = next(
+                (stops[i], stops[i + 1]) for i in range(len(stops) - 1) if t <= stops[i + 1][0])
+            k = (t - a) / (b - a) if b > a else 1
+            first, second = ImageColor.getrgb(start), ImageColor.getrgb(end)
+            column.putpixel((0, row), tuple(round(p + (q - p) * k) for p, q in zip(first, second))
+                            + (round(255 * (alpha + (beta - alpha) * k)),))
+        shade = column.resize((self.px(width), rows), Image.NEAREST)
+        top = self.px(y)
+        self.image.alpha_composite(shade.crop((0, 0, shade.width, min(rows, self.image.height - top))), (self.px(x), top))
+
+    def box(self, x, y, width, height, colour, opacity=1.0):
+        self.gradient(x, y, width, height, [(0, colour, opacity), (1, colour, opacity)])
+
+    def panel(self, x, y, width, height, radius, fill, stroke=None, stroke_width=0):
+        # SVG strokes straddle the outline: paint the stroke's outer shape, then the fill inside it.
+        half = stroke_width / 2
+        if stroke:
+            self.draw.rounded_rectangle([self.px(x - half), self.px(y - half), self.px(x + width + half), self.px(y + height + half)],
+                                        radius=self.px(radius + half), fill=stroke)
+        self.draw.rounded_rectangle([self.px(x + half), self.px(y + half), self.px(x + width - half), self.px(y + height - half)],
+                                    radius=self.px(radius - half), fill=fill)
+
+    def lines(self, lines, x, y, size, leading, colour, weight="400", anchor="ls"):
+        face = font(weight, self.px(size))
+        for i, line in enumerate(lines):
+            self.draw.text((self.px(x), self.px(y + i * leading)), line, font=face, fill=colour, anchor=anchor)
+
+    def stretched(self, text, x, y, size, length, colour):
+        """Text squeezed or widened to an exact length, as SVG textLength does."""
+        face = font("900", self.px(size))
+        left, top, right, bottom = face.getbbox(text, anchor="ls")
+        layer = Image.new("RGBA", (right - left, bottom - top))
+        ImageDraw.Draw(layer).text((-left, -top), text, font=face, fill=colour, anchor="ls")
+        layer = layer.resize((self.px(length), layer.height), Image.LANCZOS)
+        self.image.alpha_composite(layer, (self.px(x), self.px(y) + top))
+
+    def jpeg(self, quality):
+        output = io.BytesIO()
+        self.image.convert("RGB").save(output, format="JPEG", quality=quality, optimize=True)
+        return output.getvalue()
+
+
+def cover_jpeg(plan, issue_date, artwork=None, language="es"):
+    """Revista 90's cover as one picture, the layout of cover_svg. E-readers show a JPEG
+    cover everywhere; an SVG one depends on each reader's fonts and image support."""
+    labels = COVER_LABELS[language]
+    date = "/".join(reversed(issue_date.split("-")))
+    canvas = Canvas(900, 1260, 1.4, base64.b64decode(artwork["data"]) if artwork else None)
+    canvas.box(0, 0, 900, 270, "#06445f", 0.25)
+    canvas.gradient(0, 850, 900, 410, [(0, "#07354e", 0), (0.16, "#07354e", 0.94), (1, "#031e32", 0.99)])
+    canvas.lines([f"{date} · {labels['personal']}"], 48, 40, 18, 0, "#ffffff", "700")
+    canvas.panel(51, 78, 798, 142, 52, "#e7e6dc", "#033a53", 7)
+    canvas.panel(43, 68, 798, 142, 52, "#fffdf3", "#e12825", 13)
+    canvas.stretched("PRELO", 91, 172, 104, 703, "#d92724")
+    canvas.panel(49, 235, 298, 39, 4, "#30b3a3")
+    canvas.lines(["REVISTA 90'S"], 67, 263, 23, 0, "#053b5c", "900")
+    lines = wrapped(plan.title, 27)
+    size = min(60, 180 / max(1, len(lines)))
+    canvas.lines(lines, 58, 914 + size, size, size * 1.1, "#021d2e", "900")
+    canvas.lines(lines, 55, 910 + size, size, size * 1.1, "#ffe264", "900")
+    canvas.lines(wrapped(plan.subtitle, 61, 3), 55, 1150, 22, 25, "#ffffff")
+    canvas.box(55, 1221.5, 789, 3, "#3dbbb0")
+    canvas.lines([labels["tagline"]], 55, 1250, 16, 0, "#c8f3e5")
+    canvas.lines([f"{len(plan.chapters)} {labels['sections'].upper()}"], 844, 1250, 16, 0, "#c8f3e5", anchor="rs")
+    return canvas.jpeg(85)
+
+
+def opener_jpeg(eyebrow, title, art):
+    """Art, section and title composed into one page picture, so a portrait illustration
+    never leaves its title alone on another page."""
     lines = textwrap.wrap(title, 24, break_long_words=True)[:3]
-    font_size = min(64, 190 / max(1, len(lines)))
-    top = 1170 - len(lines) * font_size * 1.1
-    shadow = text_lines(" ".join(lines), 53, top + font_size + 3, 24, font_size, font_size * 1.1, "#021d2e", "900", 3)
-    headline = text_lines(" ".join(lines), 50, top + font_size, 24, font_size, font_size * 1.1, "#ffe264", "900", 3)
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" width="100%" height="100%" viewBox="0 0 900 1200" preserveAspectRatio="xMidYMid meet">
-<defs><linearGradient id="opener-shade" x1="0" y1="0" x2="0" y2="1">
-<stop offset="0" stop-color="#07354e" stop-opacity="0"/>
-<stop offset="0.3" stop-color="#07354e" stop-opacity="0.9"/>
-<stop offset="1" stop-color="#031e32" stop-opacity="0.98"/>
-</linearGradient></defs>
-<rect width="900" height="1200" fill="#075579"/>
-<image x="0" y="0" width="900" height="1200" preserveAspectRatio="xMidYMid slice" xlink:href="{html.escape(image_href, quote=True)}"/>
-<rect x="0" y="0" width="900" height="74" fill="#06445f" opacity="0.88"/>
-<rect x="0" y="{top - 70:.0f}" width="900" height="{1270 - top:.0f}" fill="url(#opener-shade)"/>
-<g font-family="sans-serif">
-{text_lines(eyebrow, 40, 49, 60, 26, 30, "#ffffff", "700", 1)}
-{shadow}{headline}
-</g></svg>"""
+    size = min(64, 190 / max(1, len(lines)))
+    top = 1170 - len(lines) * size * 1.1
+    canvas = Canvas(900, 1200, 1.2, art)
+    canvas.box(0, 0, 900, 74, "#06445f", 0.88)
+    canvas.gradient(0, top - 70, 900, 1270 - top, [(0, "#07354e", 0), (0.3, "#07354e", 0.9), (1, "#031e32", 0.98)])
+    canvas.lines(wrapped(eyebrow, 60, 1), 40, 49, 26, 30, "#ffffff", "700")
+    canvas.lines(lines, 53, top + size + 3, size, size * 1.1, "#021d2e", "900")
+    canvas.lines(lines, 50, top + size, size, size * 1.1, "#ffe264", "900")
+    return canvas.jpeg(78)

@@ -18,6 +18,7 @@ Se usan esas observaciones como dirección de diseño. No se incorporan a las pu
 3. Cada encargo visual incluye el concepto, descripción de la escena, notas de origen, pie de imagen y encabezado de destino.
 4. El puente local solicita una imagen original por encargo con la herramienta integrada de generación de Codex.
 5. El servicio coloca las imágenes junto al contenido correspondiente. Los títulos, pies y párrafos se maquetan como texto.
+6. La portada y cada carátula se componen en el servicio como una sola imagen JPEG con su título, sin SVG, para que el Kobo las muestre igual que la vista previa. Las imágenes de las notas se ajustan al ancho de la pantalla y pasan a una paleta de 256 colores cuando así pesan menos.
 
 El validador rechaza referencias a notas ajenas a la selección y exige exactamente una portada general y al menos una ilustración interior por nota. Una imagen que menciona varias notas solo cuenta para la primera, que es donde se coloca. La generación solicita una carátula por nota: con N notas se generan N + 1 imágenes, incluida la portada.
 

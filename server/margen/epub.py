@@ -12,7 +12,7 @@ from lxml import etree, html as lhtml
 from markdown_it import MarkdownIt
 from PIL import Image, ImageDraw
 from .models import PublicationRequest, EditorialPlan
-from .design import cover_svg, opener_svg
+from .design import cover_jpeg, cover_svg, opener_jpeg
 
 XHTML = "http://www.w3.org/1999/xhtml"
 EPUB = "http://www.idpf.org/2007/ops"
@@ -33,8 +33,8 @@ p.figure { text-align:center; text-indent:0; margin:1em 0; page-break-inside:avo
 p, li { orphans:2; widows:2; }
 .article + .article { margin-top:2.5em; padding-top:1em; border-top:1px solid #aaa; }
 body.opener-page { margin:0; padding:0; }
-.opener { margin:0; padding:0; text-align:center; height:100%; }
-.opener svg { display:block; width:100%; height:100%; }
+.opener { margin:0; padding:0; text-align:center; }
+.opener img { display:block; width:100%; height:auto; margin:0 auto; }
 blockquote { border-left:3px solid #a33d27; margin:1em 0; padding:0.3em 1em; }
 pre { font-size:0.8em; white-space:pre-wrap; overflow-wrap:anywhere; padding:0.8em; border:1px solid #b7b7b7; }
 code { font-family:monospace; overflow-wrap:anywhere; }
@@ -84,6 +84,8 @@ SHORT_NOTE = 1500
 # Alt texts that only say "an image" make no caption.
 GENERIC_ALT = re.compile(r"^(esquema o captura|imagen|imaxe|image|captura|esquema|figura)?$|\.(png|jpe?g|gif|webp)$", re.I)
 PIXEL_WIDTH = 640
+# Kobo Libra Colour, portrait.
+SCREEN_WIDTH = 1264
 
 
 def lossless_png(raw: bytes) -> bytes:
@@ -95,9 +97,10 @@ def lossless_png(raw: bytes) -> bytes:
 
 
 def retro_image(raw: bytes, media_type: str):
-    """Revista 90's: the original picture, untouched, inside a bevelled 16-bit console frame
-    painted around it. Small pictures first grow by a whole factor with nearest neighbour,
-    so the reader shows crisp pixels instead of a blur. Animated GIFs stay as they are."""
+    """Revista 90's: the original picture inside a bevelled 16-bit console frame painted
+    around it. Small pictures first grow by a whole factor with nearest neighbour, so the
+    reader shows crisp pixels instead of a blur; wider ones narrow to the reader's screen.
+    Animated GIFs stay as they are."""
     if media_type == "image/gif":
         return raw, media_type
     with Image.open(io.BytesIO(raw)) as source:
@@ -107,6 +110,8 @@ def retro_image(raw: bytes, media_type: str):
     if upscaled:
         factor = min(4, -(-PIXEL_WIDTH // picture.width))
         picture = picture.resize((picture.width * factor, picture.height * factor), Image.NEAREST)
+    elif picture.width > SCREEN_WIDTH:
+        picture = picture.resize((SCREEN_WIDTH, round(picture.height * SCREEN_WIDTH / picture.width)), Image.LANCZOS)
     mat, bevel = frame_sizes(picture.width)
     edge = mat + bevel
     framed = Image.new("RGB", (picture.width + 2 * edge, picture.height + 2 * edge), "#fffdf7")
@@ -122,6 +127,12 @@ def retro_image(raw: bytes, media_type: str):
         framed.save(output, format="JPEG", quality=92, optimize=True)
         return output.getvalue(), "image/jpeg"
     framed.save(output, format="PNG", optimize=True)
+    if framed.getcolors(256) is None:
+        # Screenshots and photos: a 256-colour palette usually weighs far less.
+        palette = io.BytesIO()
+        framed.quantize(256, method=Image.Quantize.MEDIANCUT).save(palette, format="PNG", optimize=True)
+        if palette.tell() < output.tell():
+            output = palette
     return output.getvalue(), "image/png"
 
 
@@ -225,15 +236,21 @@ def build_epub(request: PublicationRequest, plan: EditorialPlan, edition_id: str
     extensions = {"image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp"}
     assets = {}
     cover_art = next((v for v in illustrations if v["placement"] == "cover"), None)
-    files = {"EPUB/style.css": CSS,
-             "EPUB/cover.svg": cover_svg(plan, now.date().isoformat(), request.style, cover_art, request.language)}
+    preview = cover_svg(plan, now.date().isoformat(), request.style, cover_art, request.language)
+    # Revista 90's carries its cover as a picture; the SVG stays as the library preview.
+    if request.style == "retro90":
+        cover_file, cover_type = "cover.jpg", "image/jpeg"
+        cover = cover_jpeg(plan, now.date().isoformat(), cover_art, request.language)
+    else:
+        cover_file, cover_type, cover = "cover.svg", "image/svg+xml", preview
+    files = {"EPUB/style.css": CSS, "EPUB/" + cover_file: cover}
     manifest_items = [
         ("css", "style.css", "text/css", ""),
-        ("cover-image", "cover.svg", "image/svg+xml", "cover-image"),
+        ("cover-image", cover_file, cover_type, "cover-image"),
         ("cover", "text/cover.xhtml", "application/xhtml+xml", ""),
         ("nav", "text/nav.xhtml", "application/xhtml+xml", "nav"),
     ]
-    files["EPUB/text/cover.xhtml"] = xhtml(plan.title, f'<img src="../cover.svg" alt="{LABELS[request.language]["cover"]}"/>',
+    files["EPUB/text/cover.xhtml"] = xhtml(plan.title, f'<img src="../{cover_file}" alt="{LABELS[request.language]["cover"]}"/>',
                                            "cover", request.language)
     for asset in request.assets:
         data, media_type = base64.b64decode(asset.data), asset.media_type
@@ -244,18 +261,19 @@ def build_epub(request: PublicationRequest, plan: EditorialPlan, edition_id: str
         assets[asset.id] = asset.id + "." + extensions[media_type]
         files["EPUB/assets/" + assets[asset.id]] = data
         manifest_items.append(("a_" + asset.id, "assets/" + assets[asset.id], media_type, ""))
-    for illustration in illustrations:
-        if illustration["placement"] == "cover":
-            continue
-        image_file = "art/" + illustration["id"] + ".jpg"
-        files["EPUB/" + image_file] = base64.b64decode(illustration["data"], validate=True)
-        manifest_items.append(("art_" + illustration["id"], image_file, "image/jpeg", ""))
     labels = LABELS[request.language]
     openers = {}
     for illustration in illustrations:
         source_id = illustration["source_ids"][0]
         if illustration["placement"] == "inside" and not illustration.get("anchor_heading") and source_id not in openers:
             openers[source_id] = illustration
+    for illustration in illustrations:
+        # Opening art only appears composed into its opener page.
+        if illustration["placement"] == "cover" or illustration in openers.values():
+            continue
+        image_file = "art/" + illustration["id"] + ".jpg"
+        files["EPUB/" + image_file] = base64.b64decode(illustration["data"], validate=True)
+        manifest_items.append(("art_" + illustration["id"], image_file, "image/jpeg", ""))
     entries = []
     for index, chapter in enumerate(plan.chapters, 1):
         for source_id in chapter.source_ids:
@@ -328,11 +346,12 @@ def build_epub(request: PublicationRequest, plan: EditorialPlan, edition_id: str
             sections.append(f'<div class="article" id="n_{source_id}"><p class="eyebrow">{html.escape(eyebrow)}</p>'
                             f'<h1>{html.escape(entry["title"])}</h1>{head}{body}</div>')
             if source_id in openers:
-                opener = f"text/o_{source_id}.xhtml"
-                files["EPUB/" + opener] = xhtml(entry["title"], '<div class="opener">'
-                    + opener_svg(eyebrow, entry["title"], f'../art/{openers[source_id]["id"]}.jpg') + '</div>',
+                opener, picture = f"text/o_{source_id}.xhtml", f"art/o_{source_id}.jpg"
+                files["EPUB/" + picture] = opener_jpeg(eyebrow, entry["title"], base64.b64decode(openers[source_id]["data"], validate=True))
+                manifest_items.append(("art_o_" + source_id, picture, "image/jpeg", ""))
+                files["EPUB/" + opener] = xhtml(entry["title"], f'<div class="opener"><img src="../{picture}" alt="{html.escape(entry["title"], quote=True)}"/></div>',
                     request.style + " opener-page", request.language)
-                manifest_items.append(("o_" + source_id, opener, "application/xhtml+xml", "svg"))
+                manifest_items.append(("o_" + source_id, opener, "application/xhtml+xml", ""))
                 spine.append("o_" + source_id)
             source_map.append({
                 "id": note.id, "path": note.path, "title": note.title, "href": "text/" + files_of[source_id],
@@ -380,7 +399,7 @@ def build_epub(request: PublicationRequest, plan: EditorialPlan, edition_id: str
         archive.writestr("mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED)
         for name, value in files.items():
             archive.writestr(name, value, compress_type=zipfile.ZIP_DEFLATED)
-    (directory / "cover.svg").write_text(files["EPUB/cover.svg"])
+    (directory / "cover.svg").write_text(preview)
     return {
         "id": edition_id, "filename": filename, "created_at": now.isoformat(),
         "title": plan.title, "subtitle": plan.subtitle, "style": request.style,

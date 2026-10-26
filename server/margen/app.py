@@ -211,10 +211,14 @@ def artwork_image(edition_id: str, artwork_id: str):
         record = load_publication(edition_id)
         if not record["available"]:
             raise HTTPException(410, "Ilustraciones retiradas.")
-        if not any(v["id"] == artwork_id and v["placement"] == "inside" for v in record.get("artwork", [])):
+        visual = next((v for v in record.get("artwork", []) if v["id"] == artwork_id and v["placement"] == "inside"), None)
+        if not visual:
             raise HTTPException(404, "Ilustración no encontrada.")
         with zipfile.ZipFile(data_root() / edition_id / record["filename"]) as book:
-            return Response(book.read(f"EPUB/art/{artwork_id}.jpg"), media_type="image/jpeg")
+            names = set(book.namelist())
+            # Newer editions carry opening art only composed into its opener page.
+            name = next(n for n in (f"EPUB/art/{artwork_id}.jpg", f"EPUB/art/o_{visual['source_ids'][0]}.jpg") if n in names)
+            return Response(book.read(name), media_type="image/jpeg")
 
 
 @app.post("/v1/highlights/resolve", dependencies=[Depends(auth)])

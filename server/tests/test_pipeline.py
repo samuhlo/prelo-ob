@@ -2,6 +2,7 @@ import base64
 import copy
 import io
 import json
+import random
 import uuid
 import time
 import zipfile
@@ -212,6 +213,7 @@ def retro_fixture():
 
 
 def test_content_specific_artwork_and_cache(client, tmp_path, monkeypatch):
+    from PIL import Image
     from margen.artwork import generate_visuals
     from margen.epub import build_epub
     import margen.artwork as art
@@ -238,26 +240,33 @@ def test_content_specific_artwork_and_cache(client, tmp_path, monkeypatch):
     record = build_epub(request, plan, edition, folder, first)
     (folder / "manifest.json").write_text(json.dumps(record))
     with zipfile.ZipFile(folder / record["filename"]) as book:
-        assert "data:image/jpeg;base64," in book.read("EPUB/cover.svg").decode()
+        # Readers get the cover as a picture; the library preview keeps the SVG.
+        assert Image.open(io.BytesIO(book.read("EPUB/cover.jpg"))).size == (1260, 1764)
+        assert "EPUB/cover.svg" not in book.namelist()
+        assert "data:image/jpeg;base64," in (folder / "cover.svg").read_text()
         article = etree.fromstring(book.read("EPUB/text/n_a.xhtml"))
         # The opening art has its own composed page; the caption leads the text.
         assert article.xpath("count(//*[local-name()='div' and @class='illustration'])") == 0
         assert article.xpath("count(//*[local-name()='p' and @class='illustration-caption'])") == 1
         assert article.xpath("count(//*[local-name()='figcaption'])") == 0
         assert "Una imagen es una plantilla" in "".join(article.itertext())
-        assert "EPUB/art/instances.jpg" in book.namelist()
+        # Opening art is only shipped composed with its title, as one plain picture page.
+        assert not [n for n in book.namelist() if n in {"EPUB/art/instances.jpg", "EPUB/art/networks.jpg"}]
         opener = etree.fromstring(book.read("EPUB/text/o_a.xhtml"))
-        assert opener.xpath("//*[local-name()='image']/@*[local-name()='href']") == ["../art/instances.jpg"]
-        assert "Imágenes" in "".join(opener.itertext())
+        assert opener.xpath("//*[local-name()='img']/@src") == ["../art/o_a.jpg"]
+        assert "Imágenes" in opener.xpath("//*[local-name()='img']/@alt")[0]
+        assert not opener.xpath("//*[local-name()='svg']")
+        assert Image.open(io.BytesIO(book.read("EPUB/art/o_a.jpg"))).size == (1080, 1440)
         package = etree.fromstring(book.read("EPUB/package.opf"))
         assert package.xpath("//*[local-name()='spine']/*/@idref") == ["cover", "nav", "o_a", "n_a", "o_b", "n_b"]
-        assert package.xpath("//*[@id='o_a']/@properties") == ["svg"]
+        assert not package.xpath("//*[@properties='svg']")
     assert record["artwork"][2]["source_ids"] == ["a"]
     endpoint = f"/v1/publications/{edition}/artwork/instances"
     assert client.get(endpoint).status_code == 401
     image = client.get(endpoint, headers=AUTH)
     assert image.status_code == 200 and image.headers["content-type"] == "image/jpeg"
-    assert image.content == base64.b64decode(data)
+    with zipfile.ZipFile(folder / record["filename"]) as book:
+        assert image.content == book.read("EPUB/art/o_a.jpg")
     assert client.get(f"/v1/publications/{edition}/artwork/missing", headers=AUTH).status_code == 404
 
 
@@ -351,11 +360,14 @@ def test_retro_frames_note_images_without_changing_them(tmp_path):
     source.save(stream, format="WEBP", lossless=True)
     big = io.BytesIO()
     Image.new("RGB", (900, 300), "blue").save(big, format="JPEG")
+    wide = io.BytesIO()
+    Image.frombytes("RGB", (2000, 400), random.Random(1).randbytes(2000 * 400 * 3)).save(wide, format="PNG")
     markdown = ("Texto.\n\n![Esquema o captura](margen-asset:small)\n\n"
-                "![Router con dos interfaces](margen-asset:large)")
+                "![Router con dos interfaces](margen-asset:large)\n\n![Captura](margen-asset:wide)")
     notes = [{"id": "a", "title": "Redes", "path": "a.md", "markdown": markdown}]
     assets = [{"id": "small", "media_type": "image/webp", "data": base64.b64encode(stream.getvalue()).decode()},
-              {"id": "large", "media_type": "image/jpeg", "data": base64.b64encode(big.getvalue()).decode()}]
+              {"id": "large", "media_type": "image/jpeg", "data": base64.b64encode(big.getvalue()).decode()},
+              {"id": "wide", "media_type": "image/png", "data": base64.b64encode(wide.getvalue()).decode()}]
     request, plan, art = retro_fixture()
     request = PublicationRequest(notes=notes, assets=assets, style="retro90", artwork="generated")
     plan = EditorialPlan(title="Redes", subtitle="", chapters=[{"title": "Uno", "source_ids": ["a"]}],
@@ -363,7 +375,7 @@ def test_retro_frames_note_images_without_changing_them(tmp_path):
     illustrations = [{**v.model_dump(), "data": art, "media_type": "image/jpeg"} for v in plan.visuals]
     record = build_epub(request, plan, str(uuid.uuid4()), tmp_path / "retro", illustrations)
     with zipfile.ZipFile(tmp_path / "retro" / record["filename"]) as book:
-        from margen.epub import frame_sizes
+        from margen.epub import SCREEN_WIDTH, frame_sizes
         framed = Image.open(io.BytesIO(book.read("EPUB/assets/small.png")))
         edge = sum(frame_sizes(480))  # whole factor 4, at most 4
         picture = framed.crop((edge, edge, edge + 480, edge + 160))
@@ -372,9 +384,12 @@ def test_retro_frames_note_images_without_changing_them(tmp_path):
         assert picture.resize((120, 40), Image.NEAREST).tobytes() == source.tobytes()
         large = Image.open(io.BytesIO(book.read("EPUB/assets/large.jpg")))
         assert large.size == (900 + 2 * sum(frame_sizes(900)), 300 + 2 * sum(frame_sizes(900)))
+        # Wider than the reader: narrowed to its screen, and a palette keeps it light.
+        narrowed = Image.open(io.BytesIO(book.read("EPUB/assets/wide.png")))
+        assert narrowed.width == SCREEN_WIDTH + 2 * sum(frame_sizes(SCREEN_WIDTH)) and narrowed.mode == "P"
         article = book.read("EPUB/text/n_a.xhtml").decode()
         figures = etree.fromstring(article.encode()).xpath("//*[@class='retro-figure']")
-        assert len(figures) == 2 and all(f[0].tag.endswith("img") and f[1].tag.endswith("br") for f in figures)
+        assert len(figures) == 3 and all(f[0].tag.endswith("img") and f[1].tag.endswith("br") for f in figures)
         assert "FIG. 01</span></p>" in article and "FIG. 02</span> · Router con dos interfaces" in article
         assert 'class="figure"' not in article
     study = build_epub(PublicationRequest(notes=notes, assets=assets), plan_publication(PublicationRequest(notes=notes, assets=assets)),
