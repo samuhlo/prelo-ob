@@ -130,9 +130,11 @@ export class StudioView extends ItemView {
       this.connection = "Biblioteca conectada";
       this.error = "";
       const current = this.library.jobs.find(j => j.id === this.plugin.state.activeJob);
-      const finished = current && ["complete", "failed"].includes(current.state);
+      const finished = current && ["complete", "failed", "cancelled"].includes(current.state);
       if (finished) { this.plugin.state.activeJob = undefined; void this.plugin.save(); }
-      if ((changed && this.tab !== "compose") || force || finished && this.tab === "compose" && !this.plugin.busy) this.render();
+      // The start screen lists the drafts; an open composer is never redrawn under the user.
+      const starting = this.tab === "compose" && !this.plugin.state.composer.active;
+      if ((changed && (this.tab !== "compose" || starting)) || force || finished && this.tab === "compose" && !this.plugin.busy) this.render();
       else this.updateConnection();
       if (this.tab === "compose" && this.plugin.state.composer.step === 2) this.updateCreateButton();
     } catch (error) {
@@ -501,7 +503,8 @@ export class StudioView extends ItemView {
       const row = list.createDiv({ cls: "margen-draft-row" });
       setIcon(row.createSpan(), "bookmark");
       const text = row.createDiv();
-      text.createEl("strong", { text: draft.title || "Una lectura por preparar" });
+      const first = draft.paths[0]?.split("/").pop()?.replace(/\.md$/, "");
+      text.createEl("strong", { text: draft.title || (first ? `${first}${draft.paths.length > 1 ? ` y ${draft.paths.length - 1} más` : ""}` : "Una lectura por preparar") });
       text.createEl("small", { text: [`${draft.paths.length} ${draft.paths.length === 1 ? "nota" : "notas"}`, labelStyle(draft.style),
         draft.updated_at ? date(draft.updated_at) : "", local ? "Solo en este equipo" : ""].filter(Boolean).join(" · ") });
       button(row, "Retomar", () => this.plugin.resumeComposer(composerFromDraft(draft)), "arrow-right");
