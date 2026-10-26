@@ -31,6 +31,14 @@ def occupied(port):
         return sock.connect_ex(("127.0.0.1", port)) == 0
 
 
+def fresh_build_context(folder):
+    """Release archives give every file the same timestamp. BuildKit skips a file whose size and
+    timestamp match its cached context, so an edit of the same length would keep the old code."""
+    for path in Path(folder).rglob("*"):
+        if path.is_file():
+            os.utime(path)
+
+
 def preflight(runtime, ai, root=ROOT):
     if sys.platform != "darwin":
         raise ValueError("El servicio USB requiere macOS. En Windows/Linux instala solo el plugin o usa BRAT.")
@@ -131,6 +139,7 @@ def install_service(vault, *, ai=None, root=ROOT, runtime=None, check=False):
     docker = ["docker", "--context", context]
     compose = [*docker, "compose", "--project-name", "prelo", "--project-directory", str(app),
                "--env-file", str(env_file), "--file", str(app / "compose.yaml")]
+    fresh_build_context(app / "server")
     run([*compose, "up", "-d", "--build", "--wait", "--wait-timeout", "120", "margen"], timeout=420)
     container = run([*compose, "ps", "-q", "margen"], timeout=15).stdout.strip()
     if not container:

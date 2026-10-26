@@ -125,3 +125,13 @@ def test_connection_cli_accepts_utf8_with_bom(fixture, tmp_path, monkeypatch, ca
     install_plugin.main()
     assert received[0]['connection']['highlightsFolder'] == connection['highlightsFolder']
     assert connection['token'] not in capsys.readouterr().out
+
+
+def test_build_context_files_get_fresh_timestamps(tmp_path):
+    # Two releases with a same-length edit must not reuse the cached file.
+    source = tmp_path / "server/margen/__init__.py"
+    source.parent.mkdir(parents=True)
+    source.write_text('__version__ = "0.9.2"\n')
+    os.utime(source, (1767225600, 1767225600))
+    installer.fresh_build_context(tmp_path / "server")
+    assert source.stat().st_mtime > 1767225600
