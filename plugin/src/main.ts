@@ -8,7 +8,8 @@ import { randomUUID } from "node:crypto";
 import { openKoboDatabase } from "./sqlite";
 import { apiErrorMessage, validateNoteSizes, appendHighlight, hash, readHighlights, ResolvedHighlight, highlightFilename, modernizeHighlightDates, safeRelative } from "./core";
 import { writingModes, studyAids, WritingMode, StudyAids, Language } from "./editorial";
-import { Composer, emptyComposer, MARGEN_ICON, STUDIO_TYPE, StudioTab, StudioView } from "./studio";
+import { Composer, MARGEN_ICON, STUDIO_TYPE, StudioTab, StudioView } from "./studio";
+import { draftFromComposer, emptyComposer } from "./session";
 import { addPaths, renamePaths } from "./selection";
 import type { KoboPlace } from "./delivery";
 import { findUpdate, installable, PLUGIN_FILES, RELEASES_API, RELEASES_URL, ReleaseUpdate, UPDATE_INTERVAL, verifyUpdate } from "./updates";
@@ -25,6 +26,8 @@ type ImportReceipt = { completedAt: string; examined: number; added: number; unr
 type State = { settings: Settings; sources: Record<string, string>; importNotes: Record<string, string>; lastImport?: ImportReceipt;
   activeJob?: string;
   composer: Composer; previousComposer?: Composer;
+  // A selection left when Prelo closed while the Mac was unreachable.
+  parked?: Composer;
   visualWelcomeSeen?: boolean;
   lastMigration?: { completedAt: string; notes: number; renamed: number; dates: number; backup: string } };
 export type Publication = {
@@ -41,7 +44,7 @@ type PublicationDetail = Publication & {
 };
 type Source = { id: string; path: string; title: string; markdown: string; original_sha256: string };
 type Asset = { id: string; media_type: string; data: string };
-export type Draft = { id: string; title: string; intent: string; preserve_order?: boolean; style: string; paths: string[]; writing_mode?: WritingMode; study_aids?: StudyAids; language?: Language | null; use_ai?: boolean; send_to_kobo?: boolean };
+export type Draft = { id: string; title: string; intent: string; preserve_order?: boolean; style: string; paths: string[]; writing_mode?: WritingMode; study_aids?: StudyAids; language?: Language | null; use_ai?: boolean; send_to_kobo?: boolean; updated_at?: string };
 const DEFAULTS: Settings = {
   checkUpdates: true, serverUrl: "http://127.0.0.1:8765", token: "", koboPath: "/Volumes/KOBOeReader",
   outputFolder: "Prelo/Publicaciones", highlightsFolder: "Prelo/Subrayados",
@@ -66,7 +69,7 @@ export default class Prelo extends Plugin {
     const stored = await this.loadData();
     this.state = { settings: { ...DEFAULTS, ...stored?.settings }, sources: stored?.sources ?? {},
       importNotes: stored?.importNotes ?? {}, lastImport: stored?.lastImport, lastMigration: stored?.lastMigration,
-      composer: { ...emptyComposer(), ...stored?.composer }, previousComposer: stored?.previousComposer,
+      composer: { ...emptyComposer(), ...stored?.composer }, previousComposer: stored?.previousComposer, parked: stored?.parked,
       visualWelcomeSeen: stored?.visualWelcomeSeen ?? false };
     this.state.composer.paths = [...new Set<string>((this.state.composer.paths || []).filter((p: unknown) => typeof p === "string"))];
     this.state.activeJob = stored?.activeJob;
@@ -134,6 +137,7 @@ export default class Prelo extends Plugin {
       const file = this.app.workspace.getActiveFile();
       if (this.isEligible(file)) this.lastNote = file;
       this.updateNoteActions();
+      void this.leftStudio();
       if (!this.state.visualWelcomeSeen) {
         this.state.visualWelcomeSeen = true;
         void this.save().then(() => this.openStudio("compose")).catch(() => new Notice("No se ha podido guardar el estado de Prelo."));
@@ -187,7 +191,9 @@ export default class Prelo extends Plugin {
         if (announce) new Notice("Estas notas ya están en tu selección.");
         return;
       }
-      this.changeComposer({ paths }, true);
+      const starting = !this.state.composer.active;
+      this.changeComposer({ paths, active: true }, true);
+      if (starting && !this.app.workspace.getLeavesOfType(STUDIO_TYPE).length) void this.openStudio("compose", true);
       if (announce) {
         const added = paths.length - previous;
         new Notice(added ? `${added === 1 ? "Nota añadida" : `${added} notas añadidas`}. Pulsa el icono de Prelo para preparar tu revista.` : "Estas notas ya están en tu selección.");
@@ -201,6 +207,62 @@ export default class Prelo extends Plugin {
     this.state.composer = { ...this.state.composer, ...patch };
     void this.save();
     this.notifySelection();
+  }
+  startComposer() {
+    if (!this.state.composer.active) this.changeComposer({ ...emptyComposer(), active: true });
+  }
+  resumeComposer(composer: Composer) {
+    if (this.state.composer.active && this.state.composer.paths.length)
+      return void new Notice("Termina o guarda la revista que estás preparando antes de retomar otra.");
+    if (this.state.parked?.draftId === composer.draftId) this.state.parked = undefined;
+    this.changeComposer(composer);
+  }
+  discardComposer() {
+    const c = this.state.composer;
+    this.changeComposer(emptyComposer(), true);
+    if (c.draftId) void this.api(`/v1/drafts/${c.draftId}`, undefined, "DELETE").catch(() => undefined);
+  }
+  // Nothing stays half-done once Prelo is closed: the selection becomes a draft to resume later.
+  async parkComposer(announce = true) {
+    const c = this.state.composer;
+    if (this.busy || this.state.activeJob || !c.active && !c.paths.length) return;
+    this.state.composer = emptyComposer();
+    if (!c.paths.length) { await this.save(); return this.notifySelection(); }
+    const draft = draftFromComposer(c, c.draftId || randomUUID());
+    this.state.parked = { ...c, draftId: draft.id, active: false };
+    await this.save(); this.notifySelection();
+    try {
+      await this.api("/v1/drafts", draft);
+      if (this.state.parked?.draftId === draft.id) { this.state.parked = undefined; await this.save(); }
+    } catch { /* kept on this computer; shared on the next refresh */ }
+    if (announce) new Notice("Tu revista a medias se ha guardado. Retómala desde Preparar revista.");
+    this.notifySelection();
+  }
+  async leftStudio() {
+    if (this.unloaded || this.app.workspace.getLeavesOfType(STUDIO_TYPE).length) return;
+    await this.parkComposer();
+  }
+  async shareParked() {
+    const parked = this.state.parked;
+    if (!parked?.draftId || !parked.paths.length) return;
+    await this.api("/v1/drafts", draftFromComposer(parked, parked.draftId));
+    if (this.state.parked === parked) { this.state.parked = undefined; await this.save(); }
+  }
+  async cancelJob() {
+    const id = this.state.activeJob;
+    if (!id) return;
+    try {
+      await this.api(`/v1/jobs/${id}/cancel`, {});
+      new Notice("Cancelando la edición. Se detendrá al terminar la parte en curso.");
+    } catch (error) {
+      new Notice(error instanceof Error ? error.message : String(error));
+    }
+    // With no one waiting for the job here (for example after a restart), nothing is left running.
+    if (!this.busy) {
+      this.state.activeJob = undefined; await this.save();
+      for (const leaf of this.app.workspace.getLeavesOfType(STUDIO_TYPE))
+        if (leaf.view instanceof StudioView) leaf.view.selectionChanged();
+    }
   }
   undoComposer() {
     if (this.busy || !this.state.previousComposer) return;
@@ -238,13 +300,14 @@ export default class Prelo extends Plugin {
       action.toggleClass("is-selected", selected);
     }
   }
-  async openStudio(tab?: StudioTab) {
+  async openStudio(tab?: StudioTab, background = false) {
     const file = this.app.workspace.getActiveFile();
     if (this.isEligible(file)) this.lastNote = file;
     let leaf = this.app.workspace.getLeavesOfType(STUDIO_TYPE)[0];
     if (!leaf) {
       leaf = this.app.workspace.getLeaf("tab");
-      await leaf.setViewState({ type: STUDIO_TYPE, active: true, state: { tab: tab || "compose" } });
+      await leaf.setViewState({ type: STUDIO_TYPE, active: !background, state: { tab: tab || "compose" } });
+      if (background) return;
     }
     await this.app.workspace.revealLeaf(leaf);
     if (tab && leaf.view instanceof StudioView) leaf.view.selectTab(tab);
@@ -359,9 +422,9 @@ export default class Prelo extends Plugin {
     for (let attempt = 0; attempt < 1800; attempt++) {
       const job = (await this.api(`/v1/jobs/${jobId}`)).json;
       progress(job.message);
-      if (job.state === "complete" || job.state === "failed") {
+      if (["complete", "failed", "cancelled"].includes(job.state)) {
         this.state.activeJob = undefined; await this.save();
-        if (job.state === "failed") throw new Error(job.message);
+        if (job.state !== "complete") throw new Error(job.message);
         return (await this.api(`/v1/publications/${job.publication_id}`)).json as Publication;
       }
       await new Promise(resolve => window.setTimeout(resolve, 2000));

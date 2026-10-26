@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type Prelo from "./main";
 import type { Draft, Publication } from "./main";
 import { deliveryState } from "./delivery";
+import { composerFromDraft, emptyComposer, resumable } from "./session";
 import { compareVersions } from "./updates";
 import { matchesSearch, movePath } from "./selection";
 import { appendPreloLogo } from "./brand";
@@ -17,10 +18,10 @@ export type Composer = {
   // Unset means: follow the language detected in the selected notes.
   language?: Language;
   useAI: boolean; sendToKobo: boolean; step: 1 | 2; draftId?: string;
+  // A magazine is being prepared; otherwise Preparar revista shows the start screen.
+  active: boolean;
 };
-export const emptyComposer = (): Composer => ({
-  paths: [], title: "", intent: "", preserveOrder: false, style: "study", writingMode: "original", studyAids: "none", language: undefined, useAI: false, sendToKobo: true, step: 1,
-});
+export { emptyComposer } from "./session";
 type Library = {
   version?: string;
   publications: Publication[];
@@ -96,11 +97,14 @@ export class StudioView extends ItemView {
     for (const url of this.covers.values()) URL.revokeObjectURL(url);
     this.covers.clear();
     this.contentEl.empty();
+    // Closing the last Prelo tab ends the session; the plugin decides once the layout settles.
+    window.setTimeout(() => void this.plugin.leftStudio(), 0);
   }
   selectTab(tab: StudioTab) { this.tab = tab; this.render(); void this.refresh(); }
   selectionChanged() {
     if (this.tab !== "compose") return;
-    if (this.plugin.state.composer.step === 1 && this.notesEl?.isConnected) {
+    const c = this.plugin.state.composer;
+    if (c.active && !this.plugin.state.activeJob && c.step === 1 && this.notesEl?.isConnected) {
       this.renderNotes();
       this.renderTray();
     } else this.render();
@@ -109,6 +113,7 @@ export class StudioView extends ItemView {
     if (this.loading || this.closed) return;
     this.loading = true;
     try {
+      await this.plugin.shareParked().catch(() => undefined);
       const [library, drafts, status] = await Promise.all([
         this.plugin.api("/v1/library"), this.plugin.api("/v1/drafts"), this.plugin.api("/v1/status"),
       ]);
@@ -202,12 +207,16 @@ export class StudioView extends ItemView {
       this.renderProgress();
       return;
     }
+    if (!c.active) { this.renderStart(); return; }
     this.heading("TU PRÓXIMA LECTURA", c.step === 1 ? "Las notas las eliges tú." : "Dale forma a tu revista.",
       c.step === 1 ? "Reúne apuntes, artículos e ideas. Después elegimos cómo leerlos." : "Dos estilos, las mismas ideas. Elige el que te apetezca llevar al Kobo.");
     const steps = this.page!.createDiv({ cls: "margen-steps" });
     button(steps, "1 · Reunir notas", () => this.plugin.changeComposer({ step: 1 }), undefined, c.step === 1 ? "is-active" : "");
     const next = button(steps, "2 · Elegir estilo y crear", () => this.plugin.changeComposer({ step: 2 }), undefined, c.step === 2 ? "is-active" : "");
     next.disabled = !c.paths.length;
+    const session = steps.createDiv({ cls: "margen-session-actions" });
+    button(session, "Guardar y salir", () => void this.plugin.parkComposer(), "bookmark");
+    iconButton(session, "trash-2", "Descartar esta revista", () => this.plugin.discardComposer());
     if (c.step === 2) { this.renderDesign(); return; }
     const layout = this.page!.createDiv({ cls: "margen-compose-grid" });
     const picker = layout.createDiv({ cls: "margen-picker" });
@@ -312,7 +321,6 @@ export class StudioView extends ItemView {
     const next = button(footer, "Elegir estilo", () => this.plugin.changeComposer({ step: 2 }), "arrow-right", "margen-primary");
     next.disabled = !c.paths.length || c.paths.some(p => !(this.app.vault.getAbstractFileByPath(p) instanceof TFile));
     const tools = footer.createDiv({ cls: "margen-selection-tools" });
-    const save = button(tools, "Guardar borrador", () => void this.saveDraft(), "bookmark"); save.disabled = !c.paths.length;
     const undo = button(tools, "Deshacer", () => this.plugin.undoComposer()); undo.disabled = !this.plugin.state.previousComposer;
     if (c.paths.length) button(tools, "Vaciar", () => this.plugin.changeComposer({ paths: [], step: 1 }, true));
     this.contentEl.querySelectorAll<HTMLButtonElement>(".margen-steps button")[1]?.toggleAttribute("disabled", !c.paths.length);
@@ -407,7 +415,6 @@ export class StudioView extends ItemView {
     const copy = delivery.createDiv(); copy.createEl("strong", { text: "Prepararla para el Kobo" }); copy.createEl("small", { text: "Se enviará cuando conectes el lector al Mac." });
     const actions = this.page!.createDiv({ cls: "margen-create-footer" });
     actions.createSpan({ cls: "margen-create-summary", text: `${c.paths.length} notas · ${adaptsContent(c) ? `${writingModes[c.writingMode].label} · ${studyAids[c.studyAids].label} · IA` : c.style === "retro90" ? `Portada + ${c.paths.length} carátulas con IA` : c.intent.trim() ? "Instrucciones extra con IA" : c.useAI ? "Organización con IA" : "Sin IA"}` });
-    button(actions, "Guardar borrador", () => void this.saveDraft(), "bookmark");
     button(actions, "Crear mi revista", () => void this.create(), "sparkles", "margen-primary margen-create-button");
     this.page!.createEl("p", { cls: "margen-create-hint margen-hint" });
     this.updateCreateButton();
@@ -441,17 +448,6 @@ export class StudioView extends ItemView {
       : c.style === "retro90" ? "Se creará una portada y una carátula retro por nota. Cuantas más notas, mayor tiempo y consumo de IA."
       : c.useAI ? "La IA organizará las secciones conservando el texto de tus notas." : "Se conservará el orden que has elegido, sin llamadas a la IA.");
   }
-  private async saveDraft() {
-    const c = this.plugin.state.composer;
-    if (!c.paths.length) return;
-    await this.plugin.run(async () => {
-      const id = c.draftId || randomUUID();
-      await this.plugin.api("/v1/drafts", { id, title: c.title, intent: c.intent, preserve_order: c.preserveOrder, style: c.style, paths: c.paths, writing_mode: c.writingMode, study_aids: c.studyAids, language: c.language ?? null, use_ai: c.useAI, send_to_kobo: c.sendToKobo });
-      c.draftId = id; await this.plugin.save();
-      new Notice("Borrador guardado en tu biblioteca. Puedes continuarlo desde otro equipo.");
-      void this.refresh();
-    });
-  }
   private async create() {
     if (this.plugin.busy) return;
     const c = structuredClone(this.plugin.state.composer);
@@ -470,6 +466,7 @@ export class StudioView extends ItemView {
         this.created = result;
         this.plugin.state.previousComposer = c;
         this.plugin.state.composer = emptyComposer();
+        if (c.draftId) void this.plugin.api(`/v1/drafts/${c.draftId}`, undefined, "DELETE").catch(() => undefined);
         await this.plugin.save();
         this.plugin.updateRibbon();
         this.tab = "library"; await this.refresh(true);
@@ -485,34 +482,46 @@ export class StudioView extends ItemView {
     const progress = this.page.createDiv({ cls: "margen-progress-card", attr: { role: "status", "aria-live": "polite" } });
     setIcon(progress.createSpan({ cls: "margen-progress-icon" }), "loader-circle");
     progress.createEl("strong", { text: this.progress || "El servidor está preparando la publicación." });
-    button(progress, "Ver mi biblioteca", () => this.selectTab("library"), "arrow-right");
+    const actions = progress.createDiv({ cls: "margen-progress-actions" });
+    button(actions, "Ver mi biblioteca", () => this.selectTab("library"), "arrow-right");
+    button(actions, "Cancelar edición", () => void this.plugin.cancelJob(), "circle-stop");
+  }
+  private renderStart() {
+    this.heading("TU PRÓXIMA LECTURA", "Las notas las eliges tú.", "Empieza una revista nueva o retoma una que dejaste a medias.");
+    const start = this.page!.createDiv({ cls: "margen-start" });
+    button(start, "Empezar una revista", () => this.plugin.startComposer(), "plus", "margen-primary");
+    const previous = this.plugin.state.previousComposer;
+    if (previous?.paths.length)
+      button(start, `Recuperar la última selección (${previous.paths.length} ${previous.paths.length === 1 ? "nota" : "notas"})`, () => this.plugin.undoComposer(), "undo-2");
+    const pending = resumable(this.drafts, this.plugin.state.parked);
+    const list = this.page!.createDiv({ cls: "margen-drafts" });
+    list.createEl("h2", { text: "Para retomar" });
+    if (!pending.length) list.createEl("p", { cls: "margen-hint", text: "Cuando salgas de una revista sin terminarla, aparecerá aquí, en cualquiera de tus equipos." });
+    for (const { draft, local } of pending) {
+      const row = list.createDiv({ cls: "margen-draft-row" });
+      setIcon(row.createSpan(), "bookmark");
+      const text = row.createDiv();
+      text.createEl("strong", { text: draft.title || "Una lectura por preparar" });
+      text.createEl("small", { text: [`${draft.paths.length} ${draft.paths.length === 1 ? "nota" : "notas"}`, labelStyle(draft.style),
+        draft.updated_at ? date(draft.updated_at) : "", local ? "Solo en este equipo" : ""].filter(Boolean).join(" · ") });
+      button(row, "Retomar", () => this.plugin.resumeComposer(composerFromDraft(draft)), "arrow-right");
+      iconButton(row, "trash-2", "Descartar borrador", () => void this.plugin.run(async () => {
+        if (local) { this.plugin.state.parked = undefined; await this.plugin.save(); }
+        else await this.plugin.api(`/v1/drafts/${draft.id}`, undefined, "DELETE");
+        await this.refresh(true);
+        this.render();
+      }));
+    }
   }
   private renderLibrary() {
     const heading = this.page!.createDiv({ cls: "margen-library-heading" });
     this.heading("", "Lecturas para llevar.", "Tu estantería personal, compartida entre equipos.", heading.createDiv());
-    button(heading, "Nueva revista", () => this.selectTab("compose"), "plus", "margen-primary");
+    button(heading, "Nueva revista", () => { this.plugin.startComposer(); this.selectTab("compose"); }, "plus", "margen-primary");
     if (this.created) {
       const notice = this.page!.createDiv({ cls: "margen-success" });
       setIcon(notice.createSpan(), "circle-check");
       notice.createSpan({ text: `Ya está lista: ${this.created.title}` });
       button(notice, "Ver portada e índice", () => this.plugin.preview(this.created!));
-    }
-    if (this.drafts.length) {
-      const drafts = this.page!.createDiv({ cls: "margen-drafts" });
-      drafts.createEl("h2", { text: "Para continuar" });
-      for (const draft of this.drafts) {
-        const row = drafts.createDiv({ cls: "margen-draft-row" });
-        setIcon(row.createSpan(), "bookmark");
-        const text = row.createDiv(); text.createEl("strong", { text: draft.title || "Una lectura por preparar" }); text.createEl("small", { text: `${draft.paths.length} notas · ${labelStyle(draft.style)}` });
-        button(row, "Continuar", () => {
-          this.plugin.changeComposer({ ...emptyComposer(), paths: draft.paths, title: draft.title, intent: draft.intent, preserveOrder: draft.preserve_order ?? false, style: draft.style as "study" | "retro90", useAI: draft.use_ai ?? draft.style === "retro90", writingMode: draft.writing_mode ?? "original", studyAids: draft.study_aids ?? "none", language: draft.language ?? undefined, sendToKobo: draft.send_to_kobo ?? true, draftId: draft.id }, true);
-          this.selectTab("compose");
-        }, "arrow-right");
-        iconButton(row, "trash-2", "Descartar borrador", () => void this.plugin.run(async () => {
-          await this.plugin.api(`/v1/drafts/${draft.id}`, undefined, "DELETE");
-          await this.refresh(true);
-        }));
-      }
     }
     this.renderJobs();
     const toolbar = this.page!.createDiv({ cls: "margen-library-toolbar" });

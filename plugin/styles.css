@@ -69,7 +69,10 @@
 .margen-page > .margen-kicker { color:var(--mg-accent-text); font-size:10px; letter-spacing:0.16em; margin:0 0 12px; }
 .margen-page > h1 { margin:0 0 12px; font-size:clamp(28px,4.6cqw,44px); font-weight:650; letter-spacing:-0.045em; line-height:1.08; max-width:23ch; }
 .margen-lead { color:var(--text-muted); font-size:13px; line-height:1.65; max-width:65ch; margin:0 0 25px; }
-.margen-steps { display:flex; gap:8px; margin:0 0 20px; }
+.margen-steps { display:flex; align-items:center; gap:8px; margin:0 0 20px; }
+.margen-session-actions { display:flex; align-items:center; gap:4px; margin-left:auto; }
+.margen-start { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.margen-progress-actions { display:flex; flex-wrap:wrap; gap:8px; }
 .margen-steps .margen-button { border:0; color:var(--text-muted); padding:7px 9px; font-size:11px; }
 .margen-steps .margen-button.is-active { color:var(--mg-accent-text); background:var(--mg-soft); }
 .margen-compose-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(210px,0.7fr); gap:18px; align-items:start; }

@@ -11,6 +11,12 @@ from .models import PublicationRequest
 POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="margen-publication")
 LOCK = threading.Lock()
 ACTIVE = set()
+CANCELLED = set()
+
+
+class Cancelled(ValueError):
+    def __init__(self):
+        super().__init__("Has cancelado la edición.")
 
 
 def now():
@@ -61,24 +67,47 @@ def submit(root, job_id, request: PublicationRequest, build):
         ACTIVE.add(key)
         write(path, record)
 
+    def cancelled():
+        with LOCK:
+            return key in CANCELLED
+
     def progress(message):
+        if cancelled():
+            raise Cancelled()
         with LOCK:
             record.update(state="running", message=message, updated_at=now())
             write(path, record)
 
     def run():
         try:
-            result = build(request, job_id, progress)
+            if cancelled():
+                raise Cancelled()
+            result = build(request, job_id, progress, cancelled)
             with LOCK:
                 record.update(state="complete", message="Edición terminada.", publication_id=result["id"], updated_at=now())
                 write(path, record)
         except Exception as exc:
             with LOCK:
                 message = str(exc) if isinstance(exc, ValueError) else "No se ha podido completar la edición."
-                record.update(state="failed", message=message, updated_at=now())
+                record.update(state="cancelled" if key in CANCELLED else "failed", message=message, updated_at=now())
                 write(path, record)
         finally:
             with LOCK:
                 ACTIVE.discard(key)
+                CANCELLED.discard(key)
     POOL.submit(run)
     return dict(record)
+
+
+def cancel(root, job_id):
+    """Stops a running edition at its next step; parts already being written finish first."""
+    path = job_path(root, job_id)
+    key = (str(root.resolve()), job_id)
+    with LOCK:
+        if key not in ACTIVE:
+            raise ValueError("Esta edición ya no está en marcha.")
+        CANCELLED.add(key)
+        record = json.loads(path.read_text())
+        record.update(message="Cancelando la edición…", updated_at=now())
+        write(path, record)
+    return record

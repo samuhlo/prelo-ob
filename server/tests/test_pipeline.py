@@ -173,6 +173,28 @@ def test_publication_job_is_idempotent(client):
     assert client.post("/v1/jobs", headers=AUTH, json=changed).status_code == 422
 
 
+def test_running_job_can_be_cancelled(client, monkeypatch):
+    import threading
+    import margen.app as service
+    started = threading.Event()
+    def slow_build(request, edition_id, progress, cancelled):
+        started.set()
+        while True:
+            progress("Redactando…")
+            time.sleep(.01)
+    monkeypatch.setattr(service, "build_publication", slow_build)
+    job_id = str(uuid.uuid4())
+    assert client.post("/v1/jobs", headers=AUTH, json={"id": job_id, "publication": PAYLOAD}).status_code == 202
+    assert started.wait(5)
+    assert client.post(f"/v1/jobs/{job_id}/cancel", headers=AUTH).status_code == 200
+    for _ in range(200):
+        record = client.get(f"/v1/jobs/{job_id}", headers=AUTH).json()
+        if record["state"] == "cancelled": break
+        time.sleep(.01)
+    assert record["state"] == "cancelled" and "cancelado" in record["message"]
+    assert client.post(f"/v1/jobs/{job_id}/cancel", headers=AUTH).status_code == 422
+    assert not client.get("/v1/publications", headers=AUTH).json()
+
 def retro_fixture():
     from PIL import Image
     stream = io.BytesIO()

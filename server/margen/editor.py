@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import httpx
 from pydantic import BaseModel, ValidationError
+from .jobs import Cancelled
 from .models import EditorialPlan, Chapter, PublicationRequest, Outline, WrittenPart, EditedArticle
 from .prompts import outline_instructions, write_instructions
 
@@ -244,8 +245,8 @@ def make_outline(request: PublicationRequest, cache: Cache):
 class Writer:
     """Writes the parts of one note at a time, so each note starts as soon as it is ready."""
 
-    def __init__(self, request: PublicationRequest, outline: Outline, cache: Cache):
-        self.request, self.cache = request, cache
+    def __init__(self, request: PublicationRequest, outline: Outline, cache: Cache, cancelled=lambda: False):
+        self.request, self.cache, self.cancelled = request, cache, cancelled
         self.briefs = {b.source_id: b for b in outline.briefs}
         self.notes = {n.id: n for n in request.notes}
         self.chapter_of = {i: c.title for c in outline.chapters for i in c.source_ids}
@@ -276,6 +277,8 @@ class Writer:
         }) for number, part in enumerate(parts, 1)]
 
     def run(self, task) -> WrittenPart:
+        if self.cancelled():
+            raise Cancelled()
         source_id, source, payload = task
         request, cache = self.request, self.cache
         best, best_missing, error = None, [], None
@@ -332,7 +335,8 @@ class Status:
             self.progress(f"Redactando: {self.done} de {self.parts} partes listas.")
 
 
-def plan_publication(request: PublicationRequest, cache_dir: Path | None = None, progress=lambda _: None) -> EditorialPlan:
+def plan_publication(request: PublicationRequest, cache_dir: Path | None = None, progress=lambda _: None,
+                     cancelled=lambda: False) -> EditorialPlan:
     if not request.use_ai and request.artwork != "generated":
         return EditorialPlan(
             title=request.title.strip() or "Lecturas en Prelo",
@@ -348,7 +352,7 @@ def plan_publication(request: PublicationRequest, cache_dir: Path | None = None,
     if request.title.strip():
         plan.title = request.title.strip()
     if request.writing_mode != "original" or request.study_aids != "none":
-        writer = Writer(request, outline, cache)
+        writer = Writer(request, outline, cache, cancelled)
         order = [i for c in outline.chapters for i in c.source_ids]
         notes = {n.id: n for n in request.notes}
         tasks = {i: writer.tasks(notes[i]) for i in order}

@@ -113,12 +113,12 @@ def publish(request: PublicationRequest):
         raise HTTPException(422, str(exc))
 
 
-def build_publication(request, edition_id, progress=lambda _: None):
+def build_publication(request, edition_id, progress=lambda _: None, cancelled=lambda: False):
     with BUILD_LOCK:
-        return _build_publication(request, edition_id, progress)
+        return _build_publication(request, edition_id, progress, cancelled)
 
 
-def _build_publication(request, edition_id, progress):
+def _build_publication(request, edition_id, progress, cancelled):
     staging = data_root() / (".building-" + edition_id)
     try:
         with library.LOCK:
@@ -126,7 +126,7 @@ def _build_publication(request, edition_id, progress):
             if library.storage(data_root())["free_disk_bytes"] < 256_000_000:
                 raise ValueError("Queda poco espacio libre en el disco del servicio. Libera espacio antes de generar.")
         progress("Organizando el contenido y preparando la dirección visual." if request.use_ai or request.artwork == "generated" else "Preparando el cuaderno de estudio.")
-        plan = plan_publication(request, data_root() / ".ai-cache", progress)
+        plan = plan_publication(request, data_root() / ".ai-cache", progress, cancelled)
         illustrations = generate_visuals(request, plan, data_root() / ".art-cache", progress)
         progress("Maquetando la portada, los artículos y el índice.")
         record = build_epub(request, plan, edition_id, staging, illustrations)
@@ -152,6 +152,16 @@ class JobSubmission(BaseModel):
 def submit_job(submission: JobSubmission):
     try:
         return jobs.submit(data_root(), submission.id, submission.publication, build_publication)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+
+
+@app.post("/v1/jobs/{job_id}/cancel", dependencies=[Depends(auth)])
+def cancel_job(job_id: str):
+    try:
+        return {k: v for k, v in jobs.cancel(data_root(), job_id).items() if k != "fingerprint"}
+    except FileNotFoundError:
+        raise HTTPException(404, "Trabajo no encontrado.")
     except ValueError as exc:
         raise HTTPException(422, str(exc))
 
