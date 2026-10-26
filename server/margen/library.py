@@ -190,22 +190,31 @@ def storage(root):
             "free_disk_bytes": shutil.disk_usage(root).free}
 
 
-def cleanup(root, incoming=0, protected=(), force=False):
+def cleanup(root, incoming=0, protected=(), force=False, limit_bytes=None):
     """Retire binaries only; provenance survives indefinitely. Caller holds LOCK."""
     with LOCK:
         state = storage(root)
+        if limit_bytes is not None:
+            state["limit_bytes"] = limit_bytes
         if incoming > state["limit_bytes"]:
             raise ValueError("Esta edición supera por sí sola el límite de biblioteca.")
         if state["used_bytes"] + incoming <= state["limit_bytes"] and not force:
             return {"removed": [], **state}
         target = min(int(state["limit_bytes"] * .9), state["limit_bytes"] - incoming)
+        candidates = [r for r in reversed(records(root)) if r["id"] not in protected and not r["pinned"]
+                      and r["delivery"] not in {"queued", "transferring"} and r["available"]]
+        reclaimable = sum(p.stat().st_size for r in candidates for name in (r["filename"], "cover.svg")
+                          if (p := Path(root) / r["id"] / name).is_file())
+        cache_bytes = sum(p.stat().st_size for p in (Path(root) / ".art-cache").glob("*") if p.is_file())
+        if state["used_bytes"] + incoming - cache_bytes - reclaimable > state["limit_bytes"]:
+            raise ValueError("No hay espacio sin retirar ediciones protegidas o pendientes. Amplía el límite o libera alguna.")
         for cache in (Path(root) / ".art-cache", Path(root) / ".ai-cache"):
             if cache.is_dir():
                 for p in cache.iterdir():
                     if p.is_file():
                         p.unlink()
         removed = []
-        for record in reversed(records(root)):
+        for record in candidates:
             if storage(root)["used_bytes"] <= target:
                 break
             if record["id"] in protected or record["pinned"] or record["delivery"] in {"queued", "transferring"} or not record["available"]:
@@ -221,6 +230,7 @@ def cleanup(root, incoming=0, protected=(), force=False):
             with database(root) as db:
                 event(db, "retention", {"editions": removed})
         final = storage(root)
+        final["limit_bytes"] = state["limit_bytes"]
         if final["used_bytes"] + incoming > final["limit_bytes"]:
             raise ValueError("No hay espacio sin retirar ediciones protegidas o pendientes. Amplía el límite o libera alguna.")
         return {"removed": removed, **final}
@@ -229,10 +239,12 @@ def cleanup(root, incoming=0, protected=(), force=False):
 def set_limit(root, gigabytes):
     if not 1 <= gigabytes <= 1000:
         raise ValueError("El límite debe estar entre 1 y 1000 GB.")
-    with database(root) as db:
-        db.execute("INSERT OR REPLACE INTO settings VALUES ('limit_bytes',?)", (str(int(gigabytes * 1_000_000_000)),))
-        event(db, "limit", {"gb": gigabytes})
-    return cleanup(root)
+    with LOCK:
+        result = cleanup(root, limit_bytes=int(gigabytes * 1_000_000_000))
+        with database(root) as db:
+            db.execute("INSERT OR REPLACE INTO settings VALUES ('limit_bytes',?)", (str(int(gigabytes * 1_000_000_000)),))
+            event(db, "limit", {"gb": gigabytes})
+        return result
 
 
 def device_state(root, payload=None):
@@ -306,7 +318,17 @@ def backup(root):
     import zipfile
     with LOCK:
         catalogue = records(root)
-        required = (Path(root) / ".library.sqlite").stat().st_size * 2 + 128_000_000
+        with database(root) as db:
+            uploads = [dict(r) for r in db.execute("SELECT id,sha256 FROM kobo_commands WHERE kind='upload' AND state IN ('pending','executing','failed')")]
+        upload_files = []
+        for item in uploads:
+            file = Path(root) / ".uploads" / (edition(item["id"]) + ".epub")
+            if file.is_file():
+                with file.open("rb") as stream:
+                    if hashlib.file_digest(stream, "sha256").hexdigest() != item["sha256"]:
+                        raise ValueError("Una subida no supera la comprobación del backup.")
+                upload_files.append(file)
+        required = (Path(root) / ".library.sqlite").stat().st_size * 2 + 128_000_000 + sum(p.stat().st_size for p in upload_files)
         for record in catalogue:
             required += (Path(root) / record["id"] / "manifest.json").stat().st_size
             if record["pinned"] or record["delivery"] in {"queued", "transferring"}:
@@ -321,6 +343,8 @@ def backup(root):
                 with database(root) as db, archive.open("catalogue.sql", "w", force_zip64=True) as output:
                     for line in db.iterdump():
                         output.write((line + "\n").encode())
+                for file in upload_files:
+                    archive.write(file, ".uploads/" + file.name)
                 for record in catalogue:
                     folder = Path(root) / record["id"]
                     archive.write(folder / "manifest.json", record["id"] + "/manifest.json")

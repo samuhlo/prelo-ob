@@ -59,7 +59,7 @@ async def invalid_value(request, exc):
 @app.middleware("http")
 async def limit_body(request: Request, call_next):
     # Check before Pydantic loads large base64 images, including chunked requests.
-    if request.method in {"POST", "PUT"}:
+    if request.method in {"POST", "PUT"} and request.url.path != "/v1/kobo/uploads":
         size = 0
         chunks = []
         async for chunk in request.stream():
@@ -122,7 +122,6 @@ def _build_publication(request, edition_id, progress, cancelled):
     staging = data_root() / (".building-" + edition_id)
     try:
         with library.LOCK:
-            library.cleanup(data_root())
             if library.storage(data_root())["free_disk_bytes"] < 256_000_000:
                 raise ValueError("Queda poco espacio libre en el disco del servicio. Libera espacio antes de generar.")
         progress("Organizando el contenido y preparando la dirección visual." if request.use_ai or request.artwork == "generated" else "Preparando el cuaderno de estudio.")
@@ -403,12 +402,26 @@ def kobo_removal(payload: Removal):
 
 @app.post("/v1/kobo/uploads", dependencies=[Depends(auth)])
 async def kobo_upload(request: Request, filename: str, device: str = ""):
+    import tempfile
+    kobo.destination(data_root(), device)
     if int(request.headers.get("content-length") or 0) > kobo.MAX_UPLOAD:
         raise HTTPException(413, "El EPUB supera los 200 MB.")
-    try:
-        return kobo.upload(data_root(), filename, await request.body(), device)
-    except ValueError as exc:
-        raise invalid(exc)
+    # Bound each upload on disk; do not accumulate a 200 MB body in middleware/RAM.
+    with tempfile.TemporaryDirectory(prefix=".uploading-", dir=data_root()) as folder:
+        path = Path(folder) / "book.partial"
+        size = 0
+        with path.open("wb") as output:
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > kobo.MAX_UPLOAD:
+                    raise HTTPException(413, "El EPUB supera los 200 MB.")
+                if shutil.disk_usage(folder).free < len(chunk) + 128_000_000:
+                    raise HTTPException(507, "Falta espacio temporal para recibir el EPUB.")
+                output.write(chunk)
+        try:
+            return kobo.upload(data_root(), filename, path, device)
+        except ValueError as exc:
+            raise invalid(exc)
 
 
 @app.get("/v1/kobo/uploads/{command_id}", dependencies=[Depends(auth)])
