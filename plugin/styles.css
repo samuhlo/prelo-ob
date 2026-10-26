@@ -237,7 +237,9 @@
   .margen-selection-tools { flex:1; margin:0; }
   .margen-header { flex-wrap:wrap; }
   .margen-device-card { flex-wrap:wrap; gap:13px; padding:18px; }
-  .margen-device-card > .margen-button { margin-left:auto; }
+  .margen-device-actions { margin-left:auto; }
+  .margen-reader-row { grid-template-columns:auto minmax(0,1fr) auto; }
+  .margen-reader-progress { grid-column:2 / -1; grid-row:2; }
   .margen-library-heading { flex-wrap:wrap; gap:14px; }
 }
 @container(max-width:430px) {
@@ -262,6 +264,31 @@
 }
 @media(prefers-reduced-motion:reduce) { .margen-progress-icon { animation:none; } .margen-book-card { transition:none; } }
 
+.margen-device-actions { display:flex; flex-wrap:wrap; gap:8px; flex:0 0 auto; }
+.margen-section-heading { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-top:32px; }
+.margen-section-heading h2 { font-size:18px; font-weight:600; margin:0; }
+.margen-section-heading small { font-size:10px; color:var(--text-muted); }
+.margen-orders { display:flex; flex-direction:column; gap:6px; margin:12px 0 8px; }
+.margen-order-row { display:flex; align-items:center; gap:10px; padding:10px 12px; border:1px solid var(--mg-line); border-radius:10px; font-size:12px; }
+.margen-order-row > span:first-child { display:flex; color:var(--mg-accent-text); }
+.margen-order-row > span:first-child svg { width:15px; height:15px; }
+.margen-order-row > span:nth-child(2) { flex:1; min-width:0; overflow-wrap:anywhere; }
+.margen-order-row.is-failed { color:var(--text-error); border-color:var(--text-error); }
+.margen-reader-list { display:flex; flex-direction:column; border:1px solid var(--mg-line); border-radius:12px; overflow:hidden; }
+.margen-reader-row { display:grid; grid-template-columns:auto minmax(0,1fr) minmax(120px,0.45fr) auto; align-items:center; gap:14px; padding:12px 14px; border-bottom:1px solid var(--mg-line); }
+.margen-reader-row:last-child { border-bottom:0; }
+.margen-reader-icon { display:flex; color:var(--mg-accent-text); }
+.margen-reader-icon svg { width:18px; height:18px; }
+.margen-reader-copy { min-width:0; }
+.margen-reader-copy strong { display:block; font-size:12px; font-weight:550; line-height:1.4; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.margen-reader-copy small,.margen-reader-progress small { display:block; font-size:10px; color:var(--text-muted); margin-top:3px; line-height:1.4; }
+.margen-reader-progress .margen-storage-track { margin:0; background:var(--background-modifier-border); }
+.margen-reader-actions { display:flex; align-items:center; gap:4px; }
+.margen-reader-actions .margen-button { font-size:10px; padding:6px 9px; min-height:30px; }
+.margen-highlight-list { display:flex; flex-direction:column; gap:14px; max-height:55vh; overflow:auto; }
+.margen-highlight blockquote { margin:0; padding:2px 0 2px 14px; border-left:3px solid var(--mg-accent); font-size:13px; line-height:1.6; }
+.margen-highlight p { margin:6px 0 0 17px; font-size:12px; color:var(--text-muted); }
+.margen-highlight small { display:block; margin:4px 0 0 17px; font-size:10px; color:var(--text-faint); }
 .margen-update-notice:empty { display:none; }
 .margen-update-notice { margin:12px 24px; padding:12px 16px; border:1px solid var(--background-modifier-border); border-radius:8px; background:var(--background-secondary); }
 .margen-update-notice p { margin:0 0 8px; }

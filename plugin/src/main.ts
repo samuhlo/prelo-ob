@@ -12,6 +12,7 @@ import { Composer, MARGEN_ICON, STUDIO_TYPE, StudioTab, StudioView } from "./stu
 import { draftFromComposer, emptyComposer } from "./session";
 import { addPaths, renamePaths } from "./selection";
 import type { KoboPlace } from "./delivery";
+import type { KoboBook } from "./reader";
 import { findUpdate, installable, PLUGIN_FILES, RELEASES_API, RELEASES_URL, ReleaseUpdate, UPDATE_INTERVAL, verifyUpdate } from "./updates";
 
 type Settings = {
@@ -387,6 +388,13 @@ export default class Prelo extends Plugin {
     }
   }
   preview(publication: Publication) { this.showModal(new PreviewModal(this, publication)); }
+  showHighlights(book: KoboBook) { this.showModal(new HighlightsModal(this, book)); }
+  // The connector files each quote under its marker; the note may still be travelling through sync.
+  async highlightNote(key: string): Promise<TFile | undefined> {
+    const folder = safeRelative(this.state.settings.highlightsFolder);
+    for (const file of this.app.vault.getMarkdownFiles())
+      if (file.path.startsWith(folder + "/") && (await this.app.vault.cachedRead(file)).includes(`<!-- margen:${key}:`)) return file;
+  }
   save() {
     const snapshot = JSON.parse(JSON.stringify(this.state));
     this.saveQueue = this.saveQueue.catch(() => {}).then(() => this.saveData(snapshot));
@@ -404,11 +412,12 @@ export default class Prelo extends Plugin {
     const base = new URL(s.serverUrl);
     if (!["http:", "https:"].includes(base.protocol) || base.username || base.password)
       throw new Error("Usa una URL HTTP o HTTPS sin credenciales en la dirección.");
+    const binary = body instanceof ArrayBuffer;
     const response = await requestUrl({
       url: s.serverUrl.replace(/\/$/, "") + endpoint,
       method: method || (body === undefined ? "GET" : "POST"),
-      headers: { Authorization: `Bearer ${s.token}`, "Content-Type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body), throw: false,
+      headers: { Authorization: `Bearer ${s.token}`, "Content-Type": binary ? "application/epub+zip" : "application/json" },
+      body: body === undefined ? undefined : binary ? body : JSON.stringify(body), throw: false,
     });
     if (response.status >= 400) {
       let message = `El servicio respondió ${response.status}.`;
@@ -678,6 +687,40 @@ export default class Prelo extends Plugin {
     await this.save();
     new Notice(`${imported} subrayados nuevos o actualizados. ${unresolved} pendientes de vincular.`, 10000);
   }
+}
+
+type KoboHighlight = { key: string; text: string; annotation: string; created_at: string };
+
+class HighlightsModal extends Modal {
+  constructor(private plugin: Prelo, private book: KoboBook) { super(plugin.app); }
+  async onOpen() {
+    this.modalEl.addClass("margen-modal");
+    this.contentEl.createEl("p", { text: "PRELO / SUBRAYADOS DEL KOBO", cls: "margen-kicker" });
+    this.contentEl.createEl("h1", { text: this.book.title || "Libro sin título" });
+    const status = this.contentEl.createEl("p", { cls: "margen-intro", text: "Cargando subrayados…" });
+    const list = this.contentEl.createDiv({ cls: "margen-highlight-list" });
+    try {
+      const { highlights } = (await this.plugin.api(`/v1/kobo/highlights?volume=${encodeURIComponent(this.book.id)}`)).json as { highlights: KoboHighlight[] };
+      status.setText(`${highlights.length} ${highlights.length === 1 ? "subrayado" : "subrayados"} recogidos por el Mac. Se guardan en tu vault, en ${this.plugin.state.settings.highlightsFolder}.`);
+      if (highlights.length) new Setting(this.contentEl).addButton(b => b.setButtonText("Abrir la nota de subrayados").setCta().onClick(async () => {
+        b.setDisabled(true);
+        const note = await this.plugin.highlightNote(highlights[highlights.length - 1].key);
+        b.setDisabled(false);
+        if (!note) return void new Notice("La nota aún no está en este equipo. Espera a que termine la sincronización del vault.");
+        this.close();
+        await this.app.workspace.getLeaf("tab").openFile(note);
+      }));
+      for (const h of highlights) {
+        const item = list.createDiv({ cls: "margen-highlight" });
+        item.createEl("blockquote", { text: h.text || "Anotación sin texto subrayado" });
+        if (h.annotation) item.createEl("p", { text: h.annotation });
+        if (h.created_at) item.createEl("small", { text: new Date(h.created_at).toLocaleDateString("es-ES") });
+      }
+    } catch (error) {
+      status.setText(error instanceof Error ? error.message : "No se pudieron cargar los subrayados.");
+    }
+  }
+  onClose() { this.contentEl.empty(); }
 }
 
 class PreviewModal extends Modal {

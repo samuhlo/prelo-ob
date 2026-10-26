@@ -4,6 +4,7 @@ import type Prelo from "./main";
 import type { Draft, Publication } from "./main";
 import { deliveryState } from "./delivery";
 import { composerFromDraft, emptyComposer, resumable } from "./session";
+import { BookFilter, bookStatus, commandLabel, KoboBook, KoboOverview, visibleBooks } from "./reader";
 import { compareVersions } from "./updates";
 import { matchesSearch, movePath } from "./selection";
 import { appendPreloLogo } from "./brand";
@@ -67,6 +68,9 @@ export class StudioView extends ItemView {
   private shown = 80;
   private progress = "";
   private created?: Publication;
+  private kobo?: KoboOverview;
+  private koboQuery = "";
+  private koboFilter: BookFilter = "all";
   private libraryQuery = "";
   private libraryFilter = "available";
   private visibleBooks = 24;
@@ -114,18 +118,21 @@ export class StudioView extends ItemView {
     this.loading = true;
     try {
       await this.plugin.shareParked().catch(() => undefined);
-      const [library, drafts, status] = await Promise.all([
+      const [library, drafts, status, kobo] = await Promise.all([
         this.plugin.api("/v1/library"), this.plugin.api("/v1/drafts"), this.plugin.api("/v1/status"),
+        // Services before 0.10 do not manage the reader.
+        this.plugin.api("/v1/kobo").then(r => r.json as KoboOverview).catch(() => undefined),
       ]);
       if (this.closed) return;
       const meaningful = { publications: library.json.publications, jobs: library.json.jobs,
-        drafts: drafts.json, device: { state: library.json.device.state, message: library.json.device.message,
+        drafts: drafts.json, kobo, device: { state: library.json.device.state, message: library.json.device.message,
           last_sync: library.json.device.last_sync, online: !!library.json.device.heartbeat_at && Date.now() - Date.parse(library.json.device.heartbeat_at) < 45000 } };
       const signature = JSON.stringify(meaningful);
       const changed = this.remoteSignature !== signature;
       this.remoteSignature = signature;
       this.library = library.json as Library;
       this.drafts = drafts.json as Draft[];
+      this.kobo = kobo;
       this.aiAvailable = !!status.json.ai_available;
       this.connection = "Biblioteca conectada";
       this.error = "";
@@ -587,13 +594,23 @@ export class StudioView extends ItemView {
     const modal = new Modal(this.app);
     modal.setTitle("Eliminar EPUB");
     modal.contentEl.createEl("p", { text: `Se eliminará «${p.title}» de los archivos disponibles y de la cola de envío. Para volver a tener el EPUB tendrás que generar otra edición o recuperarlo de una copia.` });
-    modal.contentEl.createEl("p", { text: "Se conservan tus notas, subrayados y el historial de la edición. Las copias que ya tengas en el Kobo o en el vault no se eliminan." });
+    modal.contentEl.createEl("p", { text: "Se conservan tus notas, subrayados y el historial de la edición. La copia que tengas en el vault no se elimina." });
     if (p.pinned) modal.contentEl.createEl("p", { text: "Esta edición está marcada como conservada. Al eliminarla también se quitará esa protección." });
+    const onReader = !!this.kobo && ["imported", "copied", "not_imported"].includes(p.on_kobo ?? "");
+    let fromReader: HTMLInputElement | undefined;
+    if (onReader) {
+      const row = modal.contentEl.createEl("label", { cls: "margen-toggle-row" });
+      fromReader = row.createEl("input", { type: "checkbox" }); fromReader.checked = true;
+      const copy = row.createDiv(); copy.createEl("strong", { text: "Quitarla también del Kobo" }); copy.createEl("small", { text: "Se quitará en la próxima conexión del lector." });
+    }
     const actions = modal.contentEl.createDiv({ cls: "margen-book-actions" });
     const cancel = button(actions, "Cancelar", () => modal.close());
     button(actions, "Eliminar EPUB", () => {
       modal.close();
-      void this.act(p, "delete");
+      // Requested first: once deleted, the edition no longer counts as delivered.
+      if (fromReader?.checked) void this.plugin.run(async () => { await this.plugin.api("/v1/kobo/removals", { path: p.filename }); })
+        .then(() => this.act(p, "delete"));
+      else void this.act(p, "delete");
     }, "trash-2", "mod-warning");
     this.plugin.showModal(modal);
     cancel.focus();
@@ -609,7 +626,7 @@ export class StudioView extends ItemView {
     } catch { return; }
   }
   private renderQueue() {
-    this.heading("DEL MAC A TU KOBO", "Preparado para la próxima conexión.", "El Mac recoge tus subrayados y te entrega las lecturas pendientes.");
+    this.heading("TU KOBO", "Tu Kobo, desde cualquier equipo.", "Pide cambios desde aquí: el Mac los aplica en la próxima conexión, recoge tus subrayados y expulsa el lector.");
     const device = this.library?.device;
     const online = !!device?.heartbeat_at && Date.now() - Date.parse(device.heartbeat_at) < 45000;
     const status = this.page!.createDiv({ cls: "margen-device-card" });
@@ -618,12 +635,33 @@ export class StudioView extends ItemView {
     copy.createEl("h2", { text: !online ? "El conector del Mac no responde" : device?.state === "working" ? "Sincronizando tu Kobo" : device?.state === "ready" ? "Todo al día" : device?.state === "error" ? "Hay algo que revisar" : "Conecta el Kobo al Mac" });
     copy.createEl("p", { text: !online ? this.error || "Comprueba que el Mac esté encendido y conectado." : device?.message || "" });
     if (device?.last_sync) copy.createEl("small", { text: `Última sincronización: ${date(device.last_sync.at)} · ${device.last_sync.added} subrayados nuevos · ${device.last_sync.sent} ${device.last_sync.sent === 1 ? "revista copiada" : "revistas copiadas"}.` });
-    button(status, "Sincronizar", () => void this.plugin.run(async () => { await this.plugin.api("/v1/device/sync", {}); new Notice("Solicitud enviada al Mac."); await this.refresh(true); }), "refresh-cw");
-    const pending = (this.library?.publications || []).filter(p => ["queued", "transferring"].includes(p.delivery || ""));
-    this.page!.createEl("h2", { text: `${pending.length} ${pending.length === 1 ? "lectura pendiente" : "lecturas pendientes"}` });
-    const grid = this.page!.createDiv({ cls: "margen-books" });
-    for (const p of pending) this.bookCard(grid, p);
-    if (!pending.length) this.emptyState(grid, "Tu cola está al día.", "Añade una lectura desde la biblioteca. No necesitas tener el Kobo conectado para prepararla.");
+    const deviceActions = status.createDiv({ cls: "margen-device-actions" });
+    button(deviceActions, "Sincronizar", () => void this.plugin.run(async () => { await this.plugin.api("/v1/device/sync", {}); new Notice("Solicitud enviada al Mac."); await this.refresh(true); }), "refresh-cw");
+    if (this.kobo) button(deviceActions, "Enviar un EPUB", () => this.pickEpub(), "upload");
+
+    const queued = (this.library?.publications || []).filter(p => ["queued", "transferring"].includes(p.delivery || ""));
+    const orders = (this.kobo?.commands || []).filter(c => c.state === "pending" || c.state === "failed" && (!this.kobo?.at || (c.done_at ?? "") > this.kobo.at));
+    this.page!.createEl("h2", { text: "Próxima conexión" });
+    if (!queued.length && !orders.length)
+      this.emptyState(this.page!.createDiv({ cls: "margen-books" }), "No hay nada pendiente.", "Envía una revista desde la biblioteca o un EPUB desde aquí. No necesitas tener el Kobo conectado.");
+    if (queued.length) {
+      const grid = this.page!.createDiv({ cls: "margen-books" });
+      for (const p of queued) this.bookCard(grid, p);
+    }
+    if (orders.length) {
+      const list = this.page!.createDiv({ cls: "margen-orders" });
+      for (const order of orders) {
+        const row = list.createDiv({ cls: `margen-order-row${order.state === "failed" ? " is-failed" : ""}` });
+        setIcon(row.createSpan(), order.kind === "remove" ? "trash-2" : "upload");
+        row.createSpan({ text: commandLabel(order) });
+        if (order.state === "pending") iconButton(row, "x", "Cancelar este cambio", () => void this.plugin.run(async () => {
+          await this.plugin.api(`/v1/kobo/commands/${order.id}`, undefined, "DELETE");
+          await this.refresh(true);
+        }));
+      }
+    }
+    this.renderReaderBooks();
+
     if (this.library) {
       const storage = this.page!.createDiv({ cls: "margen-storage" });
       storage.createSpan({ text: `Biblioteca · ${size(this.library.storage.used_bytes)} de ${size(this.library.storage.limit_bytes)}` });
@@ -631,6 +669,72 @@ export class StudioView extends ItemView {
       track.createDiv().style.width = `${Math.max(1, Math.min(100, this.library.storage.used_bytes / this.library.storage.limit_bytes * 100))}%`;
       storage.createEl("small", { text: "Las ediciones conservadas y pendientes están protegidas de la limpieza." });
     }
+  }
+  private renderReaderBooks() {
+    const kobo = this.kobo;
+    const heading = this.page!.createDiv({ cls: "margen-section-heading" });
+    heading.createEl("h2", { text: "En tu Kobo" });
+    if (kobo?.at) heading.createEl("small", { text: `Según la conexión del ${date(kobo.at)}` });
+    if (!kobo?.at) {
+      this.emptyState(this.page!.createDiv({ cls: "margen-books" }), kobo ? "Aún no sé qué hay en tu Kobo." : "Actualiza el servicio del Mac.",
+        kobo ? "Conecta el Kobo al Mac una vez y aparecerán aquí sus libros, tu progreso y tus subrayados." : "El servicio del Mac necesita la versión 0.10 para gestionar el Kobo.");
+      return;
+    }
+    const toolbar = this.page!.createDiv({ cls: "margen-library-toolbar" });
+    const search = toolbar.createEl("input", { type: "search", placeholder: "Buscar un libro o un autor…", attr: { "aria-label": "Buscar en el Kobo" } });
+    search.value = this.koboQuery;
+    const filter = toolbar.createEl("select", { attr: { "aria-label": "Filtrar libros del Kobo" } });
+    for (const [value, text] of [["all", "Todos los libros"], ["prelo", "Revistas de Prelo"], ["other", "Otros libros"]]) filter.createEl("option", { value, text });
+    filter.value = this.koboFilter;
+    const list = this.page!.createDiv({ cls: "margen-reader-list" });
+    const render = () => {
+      list.empty();
+      const books = visibleBooks(kobo.books, this.koboQuery, this.koboFilter);
+      if (!books.length) return void list.createEl("p", { cls: "margen-hint", text: "Ningún libro coincide con la búsqueda." });
+      for (const book of books) this.readerRow(list, book, kobo);
+    };
+    search.oninput = () => { this.koboQuery = search.value; render(); };
+    filter.onchange = () => { this.koboFilter = filter.value as BookFilter; render(); };
+    render();
+  }
+  private readerRow(parent: HTMLElement, book: KoboBook, kobo: KoboOverview) {
+    const state = bookStatus(book, kobo);
+    const row = parent.createDiv({ cls: "margen-reader-row" });
+    setIcon(row.createSpan({ cls: "margen-reader-icon" }), book.edition ? MARGEN_ICON : "book");
+    const copy = row.createDiv({ cls: "margen-reader-copy" });
+    copy.createEl("strong", { text: book.title || book.path || "Libro sin título" });
+    copy.createEl("small", { text: [book.edition ? "Revista de Prelo" : book.author, book.last_read ? `Leído el ${date(book.last_read)}` : ""].filter(Boolean).join(" · ") });
+    const progress = row.createDiv({ cls: "margen-reader-progress", attr: { title: state.text } });
+    progress.createDiv({ cls: "margen-storage-track" }).createDiv().style.width = `${book.percent}%`;
+    progress.createEl("small", { text: state.text });
+    const actions = row.createDiv({ cls: "margen-reader-actions" });
+    const marks = button(actions, book.highlights === 1 ? "1 subrayado" : `${book.highlights} subrayados`, () => this.plugin.showHighlights(book), "highlighter");
+    marks.disabled = !book.highlights;
+    iconButton(actions, "ellipsis", `Opciones de ${book.title}`, event => {
+      const menu = new Menu();
+      const edition = this.library?.publications.find(p => p.id === book.edition);
+      if (edition) menu.addItem(item => item.setTitle("Ver portada e índice").setIcon("book-open").onClick(() => this.plugin.preview(edition)));
+      menu.addItem(item => item.setTitle("Quitar del Kobo").setIcon("trash-2").setDisabled(!state.removable)
+        .onClick(() => void this.plugin.run(async () => {
+          await this.plugin.api("/v1/kobo/removals", { path: book.path });
+          new Notice("Se quitará en la próxima conexión del Kobo.");
+          await this.refresh(true);
+        })));
+      const box = (event.currentTarget as HTMLElement).getBoundingClientRect();
+      menu.showAtPosition({ x: box.left, y: box.bottom });
+    });
+  }
+  private pickEpub() {
+    const input = createEl("input", { type: "file", attr: { accept: ".epub,application/epub+zip" } });
+    input.onchange = () => void this.plugin.run(async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      if (file.size > 200_000_000) throw new Error("El EPUB supera los 200 MB.");
+      await this.plugin.api(`/v1/kobo/uploads?filename=${encodeURIComponent(file.name)}`, await file.arrayBuffer());
+      new Notice(`«${file.name}» se enviará en la próxima conexión del Kobo.`);
+      await this.refresh(true);
+    });
+    input.click();
   }
   private renderJobs() {
     const jobs = this.library?.jobs || [];
