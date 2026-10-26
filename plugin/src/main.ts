@@ -10,6 +10,7 @@ import { apiErrorMessage, validateNoteSizes, appendHighlight, hash, readHighligh
 import { writingModes, studyAids, WritingMode, StudyAids, Language } from "./editorial";
 import { Composer, emptyComposer, MARGEN_ICON, STUDIO_TYPE, StudioTab, StudioView } from "./studio";
 import { addPaths, renamePaths } from "./selection";
+import type { KoboPlace } from "./delivery";
 import { findUpdate, installable, PLUGIN_FILES, RELEASES_API, RELEASES_URL, ReleaseUpdate, UPDATE_INTERVAL, verifyUpdate } from "./updates";
 
 type Settings = {
@@ -31,6 +32,7 @@ export type Publication = {
   created_at: string; warnings: string[]; ai_used: boolean;
   style?: string; writing_mode?: WritingMode; study_aids?: StudyAids;
   available?: boolean; pinned?: boolean; delivery?: string; bytes?: number;
+  on_kobo?: KoboPlace | null; percent_read?: number | null;
 };
 type PublicationDetail = Publication & {
   plan: { chapters: { title: string; source_ids: string[] }[] };

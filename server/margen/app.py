@@ -18,7 +18,7 @@ from .highlights import resolve
 from .artwork import generate_visuals
 from . import jobs, library
 from pydantic import BaseModel, Field
-from typing import Literal
+from typing import Annotated, Literal
 
 BUILD_LOCK = threading.Lock()
 
@@ -307,6 +307,30 @@ class DeviceStatus(BaseModel):
     message: str = Field(max_length=500)
     device: str = Field(default="", max_length=100)
     last_sync: dict | None = None
+
+
+class KoboBook(BaseModel):
+    id: str = Field(max_length=500)
+    path: str = Field(default="", max_length=500)
+    edition: str = Field(default="", pattern=r"^([0-9a-f-]{36})?$")
+    title: str = Field(default="", max_length=300)
+    author: str = Field(default="", max_length=300)
+    percent: int = Field(default=0, ge=0, le=100)
+    last_read: str = Field(default="", max_length=40)
+    status: str = Field(default="", max_length=10)
+    present: bool = False
+
+
+class Inventory(BaseModel):
+    device: str = Field(default="", max_length=100)
+    books: list[KoboBook] = Field(default_factory=list, max_length=5000)
+    unimported: list[Annotated[str, Field(pattern=r"^[0-9a-f-]{36}$")]] = Field(default_factory=list, max_length=5000)
+
+
+@app.post("/v1/device/inventory", dependencies=[Depends(auth)])
+def update_inventory(payload: Inventory):
+    library.save_inventory(data_root(), payload.model_dump())
+    return {"books": len(payload.books)}
 
 
 @app.get("/v1/device", dependencies=[Depends(auth)])

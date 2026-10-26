@@ -11,6 +11,7 @@ import tempfile
 import time
 import unicodedata
 import urllib.request
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
@@ -52,7 +53,9 @@ def relative(root, value):
     return target
 
 
-def read_kobo(mount):
+@contextmanager
+def kobo_snapshot(mount):
+    """Read-only copy of the reader database; the original is never opened by sqlite."""
     database = mount / ".kobo/KoboReader.sqlite"
     wal = database.with_name(database.name + "-wal")
     if wal.exists() and wal.stat().st_size:
@@ -69,37 +72,76 @@ def read_kobo(mount):
         try:
             if db.execute("PRAGMA quick_check").fetchone()[0] != "ok":
                 raise ValueError("La copia de la base del Kobo no supera la comprobación de integridad.")
-            columns = {r["name"] for r in db.execute("PRAGMA table_info(Bookmark)")}
-            if not {"BookmarkID", "VolumeID"}.issubset(columns):
-                raise ValueError("No se reconoce la tabla de subrayados del Kobo.")
-            book_columns = {r["name"] for r in db.execute("PRAGMA table_info(content)")}
-            books = {}
-            if "ContentID" in book_columns:
-                selected = [name for name in ["ContentID", "Title", "Attribution"] if name in book_columns]
-                sql = "SELECT " + ", ".join('"' + name + '"' for name in selected) + " FROM content" + (" WHERE ContentType=6" if "ContentType" in book_columns else "")
-                books = {str(r["ContentID"]): dict(r) for r in db.execute(sql)}
-            result = []
-            string = lambda value: "" if value is None else str(value)
-            # Firmware stores opaque bytes in fields such as ExtraAnnotationData,
-            # sometimes declared as TEXT. Do not ask sqlite3 to decode unused fields.
-            selected = [name for name in ["BookmarkID", "VolumeID", "ContentID", "StartContainerPath",
-                        "Text", "Annotation", "DateCreated", "Hidden", "Color", "Colour"] if name in columns]
-            sql = "SELECT " + ", ".join('"' + name + '"' for name in selected) + " FROM Bookmark"
-            for row in db.execute(sql):
-                row = dict(row)
-                if str(row.get("Hidden", "")).lower() in {"true", "1"} or not (row.get("Text") or row.get("Annotation")):
-                    continue
-                book = books.get(string(row.get("VolumeID")), {})
-                result.append({
-                    "id": string(row.get("BookmarkID")), "volume_id": string(row.get("VolumeID")),
-                    "content_id": string(row.get("ContentID")), "start_path": string(row.get("StartContainerPath")),
-                    "text": string(row.get("Text")), "annotation": string(row.get("Annotation")),
-                    "title": string(book.get("Title")), "author": string(book.get("Attribution")),
-                    "created_at": string(row.get("DateCreated")), "color": string(row.get("Color", row.get("Colour"))),
-                })
-            return result
+            yield db
         finally:
             db.close()
+
+
+def read_kobo(mount):
+    with kobo_snapshot(mount) as db:
+        columns = {r["name"] for r in db.execute("PRAGMA table_info(Bookmark)")}
+        if not {"BookmarkID", "VolumeID"}.issubset(columns):
+            raise ValueError("No se reconoce la tabla de subrayados del Kobo.")
+        book_columns = {r["name"] for r in db.execute("PRAGMA table_info(content)")}
+        books = {}
+        if "ContentID" in book_columns:
+            selected = [name for name in ["ContentID", "Title", "Attribution"] if name in book_columns]
+            sql = "SELECT " + ", ".join('"' + name + '"' for name in selected) + " FROM content" + (" WHERE ContentType=6" if "ContentType" in book_columns else "")
+            books = {str(r["ContentID"]): dict(r) for r in db.execute(sql)}
+        result = []
+        string = lambda value: "" if value is None else str(value)
+        # Firmware stores opaque bytes in fields such as ExtraAnnotationData,
+        # sometimes declared as TEXT. Do not ask sqlite3 to decode unused fields.
+        selected = [name for name in ["BookmarkID", "VolumeID", "ContentID", "StartContainerPath",
+                    "Text", "Annotation", "DateCreated", "Hidden", "Color", "Colour"] if name in columns]
+        sql = "SELECT " + ", ".join('"' + name + '"' for name in selected) + " FROM Bookmark"
+        for row in db.execute(sql):
+            row = dict(row)
+            if str(row.get("Hidden", "")).lower() in {"true", "1"} or not (row.get("Text") or row.get("Annotation")):
+                continue
+            book = books.get(string(row.get("VolumeID")), {})
+            result.append({
+                "id": string(row.get("BookmarkID")), "volume_id": string(row.get("VolumeID")),
+                "content_id": string(row.get("ContentID")), "start_path": string(row.get("StartContainerPath")),
+                "text": string(row.get("Text")), "annotation": string(row.get("Annotation")),
+                "title": string(book.get("Title")), "author": string(book.get("Attribution")),
+                "created_at": string(row.get("DateCreated")), "color": string(row.get("Color", row.get("Colour"))),
+            })
+        return result
+
+
+ONBOARD = "file:///mnt/onboard/"
+EDITION_FILE = re.compile(r"margen-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.epub")
+
+
+def read_books(mount):
+    """Books the reader has imported, plus Prelo files still waiting to be imported."""
+    with kobo_snapshot(mount) as db:
+        columns = {r["name"] for r in db.execute("PRAGMA table_info(content)")}
+        if "ContentID" not in columns:
+            return {"books": [], "unimported": []}
+        wanted = [c for c in ["ContentID", "Title", "Attribution", "___PercentRead", "DateLastRead", "ReadStatus"] if c in columns]
+        sql = "SELECT " + ", ".join('"' + c + '"' for c in wanted) + " FROM content" + (" WHERE ContentType=6" if "ContentType" in columns else "")
+        rows = [dict(r) for r in db.execute(sql)]
+    string = lambda value: "" if value is None else str(value)
+    books, imported = [], set()
+    for row in rows:
+        content = string(row.get("ContentID"))
+        path = content.removeprefix(ONBOARD) if content.startswith(ONBOARD) else ""
+        match = EDITION_FILE.fullmatch(path)
+        if match:
+            imported.add(match[1])
+        try:
+            percent = max(0, min(100, int(float(row.get("___PercentRead") or 0))))
+        except ValueError:
+            percent = 0
+        books.append({"id": content[:500], "path": path[:500], "edition": match[1] if match else "",
+                      "title": string(row.get("Title"))[:300], "author": string(row.get("Attribution"))[:300],
+                      "percent": percent, "last_read": string(row.get("DateLastRead"))[:40],
+                      "status": string(row.get("ReadStatus"))[:10],
+                      "present": bool(path) and ".." not in path.split("/") and (mount / path).is_file()})
+    waiting = sorted(m[1] for f in mount.glob("margen-*.epub") if (m := EDITION_FILE.fullmatch(f.name)) and m[1] not in imported)
+    return {"books": books, "unimported": waiting}
 
 
 def caption_date(value):
@@ -254,6 +296,8 @@ class Worker:
             version = mount / ".kobo/version"
             device = digest(version.read_bytes() if version.is_file() else str(mount))[:20]
             self.report("working", "Recogiendo subrayados del Kobo.", device)
+            # Taken before copying: it shows what the reader imported after the previous connection.
+            self.api("/v1/device/inventory", {"device": device, **read_books(mount)})
             raw = read_kobo(mount)
             resolved = []
             for offset in range(0, len(raw), 100):
@@ -290,7 +334,7 @@ class Worker:
                 sent += 1
             self.last_sync = {"at": stamp(), **result, "sent": sent, "device": device}
             atomic_json(self.state / "last-sync.json", self.last_sync)
-            self.report("ready", f'{result["added"]} subrayados nuevos o actualizados · {sent} revistas enviadas.', device)
+            self.report("ready", f'{result["added"]} subrayados nuevos o actualizados · {sent} revistas copiadas; aparecerán al desconectar el Kobo.' if sent else f'{result["added"]} subrayados nuevos o actualizados.', device)
             if self.config.get("auto_eject", True):
                 subprocess.run(["/usr/sbin/diskutil", "eject", str(mount)], check=True, capture_output=True, timeout=25)
             return self.last_sync

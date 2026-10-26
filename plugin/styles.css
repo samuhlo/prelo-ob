@@ -181,6 +181,7 @@
 .margen-book-copy h2 { font-size:16px; font-weight:600; letter-spacing:-.025em; margin:8px 0 12px; line-height:1.25; }
 .margen-book-status { font-size:10px; color:var(--text-muted); line-height:1.5; display:block; }
 .margen-book-status.is-queued { color:var(--mg-accent-text); }
+.margen-book-status.is-warning { color:var(--text-error); }
 .margen-book-actions { display:flex; align-items:center; justify-content:space-between; gap:5px; margin-top:15px; }
 .margen-book-actions .margen-button { font-size:10px; padding:7px 10px; }
 .margen-drafts { padding:18px; background:var(--mg-surface); border:1px solid var(--mg-line); border-radius:12px; margin-top:24px; }

@@ -235,6 +235,29 @@ def device_state(root, payload=None):
         return state
 
 
+def save_inventory(root, payload):
+    with database(root) as db:
+        db.execute("INSERT OR REPLACE INTO settings VALUES ('inventory',?)",
+                   (json.dumps({**payload, "at": now()}, ensure_ascii=False),))
+
+
+def inventory(root):
+    with database(root) as db:
+        row = db.execute("SELECT value FROM settings WHERE key='inventory'").fetchone()
+    return json.loads(row[0]) if row else None
+
+
+def on_kobo(record, books, seen):
+    """Where a delivered edition really is, judged from the last inventory of the reader."""
+    if seen is None or record["delivery"] != "sent":
+        return None
+    if record["id"] in books:
+        return "imported"
+    if record["delivered_at"] and record["delivered_at"] > seen["at"]:
+        return "copied"
+    return "not_imported" if record["id"] in seen.get("unimported", []) else "missing"
+
+
 def request_sync(root):
     with database(root) as db:
         value = str(uuid.uuid4())
@@ -246,9 +269,13 @@ def dashboard(root):
     catalogue = records(root)
     with database(root) as db:
         events = [dict(r) for r in db.execute("SELECT * FROM events ORDER BY id DESC LIMIT 30")]
-    return {"publications": [{k: r.get(k) for k in
-            ("id", "title", "subtitle", "created_at", "style", "writing_mode", "study_aids", "filename", "available", "bytes", "pinned", "delivery", "delivered_at", "archived_at")}
+    seen = inventory(root)
+    books = {b["edition"]: b for b in (seen or {}).get("books", []) if b.get("edition")}
+    return {"publications": [{**{k: r.get(k) for k in
+            ("id", "title", "subtitle", "created_at", "style", "writing_mode", "study_aids", "filename", "available", "bytes", "pinned", "delivery", "delivered_at", "archived_at")},
+            "on_kobo": on_kobo(r, books, seen), "percent_read": books.get(r["id"], {}).get("percent")}
             for r in catalogue], "storage": storage(root), "device": device_state(root),
+            "kobo": {"at": seen["at"], "books": seen["books"]} if seen else None,
             "events": [{**r, "data": json.loads(r["data"])} for r in events]}
 
 

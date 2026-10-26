@@ -249,3 +249,32 @@ def test_kobo_opaque_text_columns_are_not_decoded(tmp_path):
     assert len(rows) == 1
     assert rows[0]["text"] == "Una imagen es una plantilla."
     assert path.read_bytes() == before
+
+
+def test_library_reports_where_each_delivery_really_is(environment, tmp_path):
+    client, root = environment
+    vault, mount = tmp_path / "vault", tmp_path / "KOBOeReader"
+    vault.mkdir()
+    make_kobo(mount, "otro-libro.epub")
+    worker = Worker({"vault": str(vault), "state": str(tmp_path / "worker"), "highlights_folder": "Subrayados", "auto_eject": False})
+    def api(route, body=None, binary=False):
+        response = client.get(route, headers=AUTH) if body is None else client.post(route, headers=AUTH, json=body)
+        response.raise_for_status()
+        return response.content if binary else response.json()
+    worker.api = api
+    state = lambda record: next(p for p in api("/v1/library")["publications"] if p["id"] == record["id"])["on_kobo"]
+    first, second = publish(client, queued=True, title="Primera"), publish(client, queued=True, title="Segunda")
+    worker.synchronize(mount)
+    assert state(first) == state(second) == "copied"
+    # After disconnecting, the reader imported only the first one and the reader opened it.
+    with sqlite3.connect(mount / ".kobo/KoboReader.sqlite") as db:
+        db.execute("ALTER TABLE content ADD COLUMN ___PercentRead INTEGER")
+        db.execute("INSERT INTO content VALUES (?,6,'Primera','Prelo',35)", ("file:///mnt/onboard/" + first["filename"],))
+    worker.synchronize(mount)
+    library_state = api("/v1/library")
+    assert state(first) == "imported" and state(second) == "not_imported"
+    assert next(p for p in library_state["publications"] if p["id"] == first["id"])["percent_read"] == 35
+    assert {b["title"] for b in library_state["kobo"]["books"]} == {"Docker", "Primera"}
+    (mount / second["filename"]).unlink()
+    worker.synchronize(mount)
+    assert state(second) == "missing"

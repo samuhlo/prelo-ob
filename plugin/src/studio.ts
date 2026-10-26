@@ -2,6 +2,7 @@ import { ItemView, Menu, Modal, Notice, setIcon, TFile, WorkspaceLeaf } from "ob
 import { randomUUID } from "node:crypto";
 import type Prelo from "./main";
 import type { Draft, Publication } from "./main";
+import { deliveryState } from "./delivery";
 import { compareVersions } from "./updates";
 import { matchesSearch, movePath } from "./selection";
 import { appendPreloLogo } from "./brand";
@@ -547,12 +548,13 @@ export class StudioView extends ItemView {
     const copy = card.createDiv({ cls: "margen-book-copy" });
     copy.createEl("small", { text: `${labelStyle(p.style)} · ${date(p.created_at)}` });
     copy.createEl("h2", { text: p.title });
-    const state = p.available === false ? "Archivo retirado · subrayados conservados" : p.delivery === "transferring" ? "Copiando al Kobo" : p.delivery === "queued" ? "En cola para el Kobo" : p.delivery === "sent" ? "Enviada al Kobo" : "Lista para leer";
-    copy.createSpan({ text: `${p.pinned ? "★ " : ""}${state}`, cls: `margen-book-status${p.delivery === "queued" ? " is-queued" : ""}` });
+    const state = deliveryState(p);
+    const status = copy.createSpan({ text: `${p.pinned ? "★ " : ""}${state.text}`, cls: `margen-book-status ${state.tone}` });
+    if (p.on_kobo === "not_imported") status.title = "Desconecta el cable y espera a que el Kobo termine de importar. Si sigue sin aparecer, el lector no ha podido abrir este EPUB.";
     if (p.available === false) return;
     const actions = copy.createDiv({ cls: "margen-book-actions" });
     const queued = ["queued", "transferring"].includes(p.delivery || "");
-    button(actions, this.tab === "queue" ? "Ver lectura" : queued ? "Ver cola" : "Enviar al Kobo",
+    button(actions, this.tab === "queue" ? "Ver lectura" : queued ? "Ver cola" : state.resend ? "Volver a enviar" : "Enviar al Kobo",
       () => this.tab === "queue" ? this.plugin.preview(p) : queued ? this.selectTab("queue") : void this.act(p, "queue"),
       this.tab === "queue" ? "book-open" : queued ? "check" : "send");
     iconButton(actions, "ellipsis", `Opciones de ${p.title}`, event => {
@@ -603,7 +605,7 @@ export class StudioView extends ItemView {
     const copy = status.createDiv();
     copy.createEl("h2", { text: !online ? "El conector del Mac no responde" : device?.state === "working" ? "Sincronizando tu Kobo" : device?.state === "ready" ? "Todo al día" : device?.state === "error" ? "Hay algo que revisar" : "Conecta el Kobo al Mac" });
     copy.createEl("p", { text: !online ? this.error || "Comprueba que el Mac esté encendido y conectado." : device?.message || "" });
-    if (device?.last_sync) copy.createEl("small", { text: `Última conexión: ${date(device.last_sync.at)} · ${device.last_sync.added} subrayados nuevos · ${device.last_sync.sent} revistas enviadas.` });
+    if (device?.last_sync) copy.createEl("small", { text: `Última sincronización: ${date(device.last_sync.at)} · ${device.last_sync.added} subrayados nuevos · ${device.last_sync.sent} ${device.last_sync.sent === 1 ? "revista copiada" : "revistas copiadas"}.` });
     button(status, "Sincronizar", () => void this.plugin.run(async () => { await this.plugin.api("/v1/device/sync", {}); new Notice("Solicitud enviada al Mac."); await this.refresh(true); }), "refresh-cw");
     const pending = (this.library?.publications || []).filter(p => ["queued", "transferring"].includes(p.delivery || ""));
     this.page!.createEl("h2", { text: `${pending.length} ${pending.length === 1 ? "lectura pendiente" : "lecturas pendientes"}` });
