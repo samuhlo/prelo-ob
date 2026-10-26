@@ -333,6 +333,7 @@ class KoboBook(BaseModel):
     last_read: str = Field(default="", max_length=40)
     status: str = Field(default="", max_length=10)
     present: bool = False
+    sha256: str = Field(default="", pattern=r"^([a-f0-9]{64})?$")
 
 
 class Inventory(BaseModel):
@@ -367,10 +368,13 @@ def invalid(exc):
 
 
 class Removal(BaseModel):
+    device: str = Field(min_length=1, max_length=100)
     path: str = Field(min_length=1, max_length=400)
 
 
 class CommandResult(BaseModel):
+    device: str = Field(min_length=1, max_length=100)
+    claim_token: str = Field(min_length=1, max_length=100)
     ok: bool
     message: str = Field(default="", max_length=500)
 
@@ -388,17 +392,17 @@ def kobo_highlights(volume: str):
 @app.post("/v1/kobo/removals", dependencies=[Depends(auth)])
 def kobo_removal(payload: Removal):
     try:
-        return kobo.request_removal(data_root(), payload.path)
+        return kobo.request_removal(data_root(), payload.path, payload.device)
     except ValueError as exc:
         raise invalid(exc)
 
 
 @app.post("/v1/kobo/uploads", dependencies=[Depends(auth)])
-async def kobo_upload(request: Request, filename: str):
+async def kobo_upload(request: Request, filename: str, device: str = ""):
     if int(request.headers.get("content-length") or 0) > kobo.MAX_UPLOAD:
         raise HTTPException(413, "El EPUB supera los 200 MB.")
     try:
-        return kobo.upload(data_root(), filename, await request.body())
+        return kobo.upload(data_root(), filename, await request.body(), device)
     except ValueError as exc:
         raise invalid(exc)
 
@@ -412,8 +416,16 @@ def kobo_upload_file(command_id: str):
 
 
 @app.get("/v1/kobo/commands", dependencies=[Depends(auth)])
-def kobo_pending():
-    return kobo.pending(data_root())
+def kobo_pending(device: str = ""):
+    return kobo.pending(data_root(), device)
+
+
+@app.post("/v1/kobo/commands/{command_id}/claim", dependencies=[Depends(auth)])
+def kobo_claim(command_id: str, payload: Claim):
+    try:
+        return kobo.claim(data_root(), command_id, payload.device)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
 
 
 @app.delete("/v1/kobo/commands/{command_id}", dependencies=[Depends(auth)])
@@ -428,7 +440,7 @@ def kobo_cancel(command_id: str):
 @app.post("/v1/kobo/commands/{command_id}/done", dependencies=[Depends(auth)])
 def kobo_done(command_id: str, payload: CommandResult):
     try:
-        kobo.complete(data_root(), command_id, payload.ok, payload.message)
+        kobo.complete(data_root(), command_id, payload.ok, payload.message, payload.device, payload.claim_token)
         return {"done": command_id}
     except ValueError as exc:
         raise invalid(exc)

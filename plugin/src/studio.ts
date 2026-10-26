@@ -613,7 +613,7 @@ export class StudioView extends ItemView {
     button(actions, "Eliminar EPUB", () => {
       modal.close();
       // Requested first: once deleted, the edition no longer counts as delivered.
-      if (fromReader?.checked) void this.plugin.run(async () => { await this.plugin.api("/v1/kobo/removals", { path: p.filename }); })
+      if (fromReader?.checked) void this.plugin.run(async () => { await this.plugin.api("/v1/kobo/removals", { path: p.filename, device: this.kobo?.device }); })
         .then(() => this.act(p, "delete"));
       else void this.act(p, "delete");
     }, "trash-2", "mod-warning");
@@ -645,7 +645,7 @@ export class StudioView extends ItemView {
     if (this.kobo) button(deviceActions, "Enviar un EPUB", () => this.pickEpub(), "upload");
 
     const queued = (this.library?.publications || []).filter(p => ["queued", "transferring"].includes(p.delivery || ""));
-    const orders = (this.kobo?.commands || []).filter(c => c.state === "pending" || c.state === "failed" && (!this.kobo?.at || (c.done_at ?? "") > this.kobo.at));
+    const orders = (this.kobo?.commands || []).filter(c => ["pending", "executing"].includes(c.state) || c.state === "failed" && (!this.kobo?.at || (c.done_at ?? "") > this.kobo.at));
     this.page!.createEl("h2", { text: "Próxima conexión" });
     if (!queued.length && !orders.length)
       this.page!.createEl("p", { cls: "margen-hint margen-inline-empty", text: "No hay nada pendiente. Envía una revista desde la biblioteca o un EPUB desde aquí; no necesitas tener el Kobo conectado." });
@@ -721,7 +721,7 @@ export class StudioView extends ItemView {
       if (edition) menu.addItem(item => item.setTitle("Ver portada e índice").setIcon("book-open").onClick(() => this.plugin.preview(edition)));
       menu.addItem(item => item.setTitle("Quitar del Kobo").setIcon("trash-2").setDisabled(!state.removable)
         .onClick(() => void this.plugin.run(async () => {
-          await this.plugin.api("/v1/kobo/removals", { path: book.path });
+          await this.plugin.api("/v1/kobo/removals", { path: book.path, device: this.kobo?.device });
           new Notice("Se quitará en la próxima conexión del Kobo.");
           await this.refresh(true);
         })));
@@ -735,7 +735,7 @@ export class StudioView extends ItemView {
       const file = input.files?.[0];
       if (!file) return;
       if (file.size > 200_000_000) throw new Error("El EPUB supera los 200 MB.");
-      await this.plugin.api(`/v1/kobo/uploads?filename=${encodeURIComponent(file.name)}`, await file.arrayBuffer());
+      await this.plugin.api(`/v1/kobo/uploads?filename=${encodeURIComponent(file.name)}&device=${encodeURIComponent(this.kobo?.device || "")}`, await file.arrayBuffer());
       new Notice(`«${file.name}» se enviará en la próxima conexión del Kobo.`);
       await this.refresh(true);
     });

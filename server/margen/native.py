@@ -11,6 +11,7 @@ import tempfile
 import time
 import unicodedata
 import urllib.request
+import urllib.error
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -114,6 +115,15 @@ ONBOARD = "file:///mnt/onboard/"
 EDITION_FILE = re.compile(r"margen-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.epub")
 
 
+
+def book_checksum(mount, path):
+    target = relative(mount, path)
+    if target.is_symlink() or not target.is_file():
+        return ""
+    with target.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
 def read_books(mount):
     """Books the reader has imported, plus Prelo files still waiting to be imported."""
     with kobo_snapshot(mount) as db:
@@ -139,7 +149,8 @@ def read_books(mount):
                       "title": string(row.get("Title"))[:300], "author": string(row.get("Attribution"))[:300],
                       "percent": percent, "last_read": string(row.get("DateLastRead"))[:40],
                       "status": string(row.get("ReadStatus"))[:10],
-                      "present": bool(path) and ".." not in path.split("/") and (mount / path).is_file()})
+                      "present": bool(path) and ".." not in path.split("/") and (mount / path).is_file(),
+                      "sha256": book_checksum(mount, path) if path and ".." not in path.split("/") else ""})
     waiting = sorted(m[1] for f in mount.glob("margen-*.epub") if (m := EDITION_FILE.fullmatch(f.name)) and m[1] not in imported)
     return {"books": books, "unimported": waiting}
 
@@ -348,17 +359,29 @@ class Worker:
     def carry_out(self, mount, device):
         """Removals and uploads requested from any computer since the last connection."""
         done = 0
-        for command in self.api("/v1/kobo/commands"):
+        for command in self.api("/v1/kobo/commands?device=" + quote(device)):
             identity = command["id"]
             if not re.fullmatch(r"[a-f0-9-]{36}", identity):
                 raise ValueError("Orden no válida.")
+            # Claim before touching the reader. Cancellation is only promised while still pending.
+            try:
+                command = self.api(f"/v1/kobo/commands/{identity}/claim", {"device": device})
+            except urllib.error.HTTPError as error:
+                if error.code == 409:
+                    continue
+                raise
+            receipt = {"device": device, "claim_token": command["claim_token"]}
             try:
                 parts = command["path"].split("/")
                 if any(p in {"", ".", ".."} or p.startswith(".") for p in parts) or not command["path"].lower().endswith(".epub"):
                     raise ValueError("Ruta de libro no válida en el Kobo.")
-                target = mount.joinpath(*parts)
+                target = relative(mount, command["path"])
+                if target.is_symlink():
+                    raise ValueError("El archivo no puede ser un enlace simbólico.")
                 self.report("working", "Aplicando los cambios pedidos desde Prelo.", device)
                 if command["kind"] == "remove":
+                    if target.exists() and book_checksum(mount, command["path"]) != command["sha256"]:
+                        raise ValueError("El libro cambió desde la solicitud. Se conserva; vuelve a revisar el inventario.")
                     target.unlink(missing_ok=True)
                 elif command["kind"] == "upload":
                     data = self.api(f"/v1/kobo/uploads/{identity}", binary=True)
@@ -381,9 +404,9 @@ class Worker:
                 else:
                     raise ValueError("Orden desconocida.")
             except ValueError as error:
-                self.api(f"/v1/kobo/commands/{identity}/done", {"ok": False, "message": str(error)[:500]})
+                self.api(f"/v1/kobo/commands/{identity}/done", {**receipt, "ok": False, "message": str(error)[:500]})
                 continue
-            self.api(f"/v1/kobo/commands/{identity}/done", {"ok": True, "message": ""})
+            self.api(f"/v1/kobo/commands/{identity}/done", {**receipt, "ok": True, "message": ""})
             done += 1
         return done
 
@@ -400,7 +423,7 @@ class Worker:
                 else:
                     mount = mounts[0]
                     state = self.api("/v1/device")
-                    pending = self.api("/v1/deliveries") or self.api("/v1/kobo/commands")
+                    pending = self.api("/v1/deliveries") or self.api("/v1/kobo/commands?device=" + quote(digest((mount / ".kobo/version").read_bytes() if (mount / ".kobo/version").is_file() else str(mount))[:20]))
                     if seen != str(mount) or state["request"] != request_id or pending:
                         self.synchronize(mount)
                         seen = str(mount)

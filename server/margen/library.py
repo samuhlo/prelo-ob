@@ -53,6 +53,14 @@ def database(root):
                 sha256 TEXT, state TEXT NOT NULL, message TEXT, created_at TEXT NOT NULL, done_at TEXT
             );
         """)
+        # Additive command-protocol migration: historical identities and records remain intact.
+        db.execute("""CREATE TABLE IF NOT EXISTS kobo_command_targets (
+            id TEXT PRIMARY KEY, device TEXT NOT NULL, claim_token TEXT
+        )""")
+        db.execute("""UPDATE kobo_commands SET state='failed', message=?
+            WHERE state='pending' AND id NOT IN (SELECT id FROM kobo_command_targets)""",
+            ("Orden anterior sin lector identificado. Vuelve a solicitarla tras conectar el Kobo.",))
+        db.commit()
         try:
             yield db
             db.commit()

@@ -5,14 +5,14 @@ export type KoboBook = {
 };
 export type KoboCommand = {
   id: string; kind: "remove" | "upload"; path: string; title: string;
-  state: "pending" | "done" | "failed"; message?: string | null; created_at: string; done_at?: string | null;
+  state: "pending" | "executing" | "cancelled" | "done" | "failed"; message?: string | null; created_at: string; done_at?: string | null;
 };
-export type KoboOverview = { at: string | null; books: KoboBook[]; commands: KoboCommand[] };
+export type KoboOverview = { device?: string; at: string | null; books: KoboBook[]; commands: KoboCommand[] };
 export type BookFilter = "all" | "prelo" | "other";
 
 export function bookStatus(book: KoboBook, overview: KoboOverview): { text: string; removable: boolean } {
   const commands = overview.commands.filter(c => c.kind === "remove" && c.path === book.path && book.path);
-  if (commands.some(c => c.state === "pending")) return { text: "Se quitará en la próxima conexión", removable: false };
+  if (commands.some(c => ["pending", "executing"].includes(c.state))) return { text: "Se quitará en la próxima conexión", removable: false };
   if (commands.some(c => c.state === "done" && overview.at && (c.done_at ?? "") > overview.at))
     return { text: "Quitado · desaparecerá al desconectar el Kobo", removable: false };
   const reading = book.percent ? `${book.percent} % leído` : book.last_read ? "Empezado" : "Sin abrir";
