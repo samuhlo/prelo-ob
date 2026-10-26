@@ -63,6 +63,9 @@ def preflight(runtime, ai, root=ROOT):
     if ai == "codex":
         if not shutil.which("codex"):
             raise ValueError("Instala Codex CLI y ejecuta codex login, o elige continuar sin IA.")
+        help_text = run(["codex", "exec", "--help"], timeout=15).stdout
+        if any(flag not in help_text for flag in ["--ignore-user-config", "--ignore-rules", "--ephemeral", "--output-schema"]):
+            raise ValueError("Actualiza Codex CLI: faltan opciones necesarias para esta versión de Prelo.")
         login = run(["codex", "login", "status"], timeout=15, check=False)
         if login.returncode or "using ChatGPT" not in login.stdout + login.stderr:
             raise ValueError("Inicia sesión con codex login usando tu propia cuenta de ChatGPT.")

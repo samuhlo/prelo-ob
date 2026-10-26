@@ -1,5 +1,17 @@
 # Cambios
 
+## 0.11.0 — Candidata de estabilización
+
+- Conservación de varias revistas sin conexión y sincronización de borradores confirmada.
+- Órdenes USB vinculadas al dispositivo y al archivo, reclamación antes de ejecutar y cancelación veraz.
+- Cancelación recuperable, límites de trabajos y bloqueo de opciones de IA incompatibles.
+- Subidas por streaming, backup/restauración de pendientes y retención planificada antes de borrar.
+- Importación tolerante a notas defectuosas, identidades delimitadas y anclas para recuperar procedencia.
+- Rechazo de adaptaciones incompletas, planes editoriales comprobados y caché por proveedor.
+- Pillow 13, validación de imágenes y lista explícita de archivos públicos.
+- Recuperación de actualizaciones del plugin y del instalador; publicación condicionada al CI y aceptación de la candidata.
+- Las comprobaciones manuales pendientes se registran en docs/beta-acceptance.json; este cambio no publica por sí solo la versión.
+
 ## 0.10.1 — Revista 90's más ligera en el Kobo
 
 - Revista 90's lleva la portada y las carátulas como imágenes JPEG compuestas en el servicio, en lugar de SVG, y ajusta las imágenes de las notas a la pantalla del Kobo. La revista se ve mejor en el lector y pesa alrededor de un 40 % menos.

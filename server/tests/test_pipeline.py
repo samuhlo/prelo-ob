@@ -142,8 +142,9 @@ def test_ai_requested_without_configuration_is_explicit_failure(client, monkeypa
 
 def test_images_packaged_and_remote_images_reported(client):
     payload = copy.deepcopy(PAYLOAD)
-    payload["assets"] = [{"id": "pixel", "media_type": "image/png", "data":
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII="}]
+    from PIL import Image
+    pixel = io.BytesIO(); Image.new("RGB", (1, 1), "white").save(pixel, format="PNG")
+    payload["assets"] = [{"id": "pixel", "media_type": "image/png", "data": base64.b64encode(pixel.getvalue()).decode()}]
     payload["notes"][0]["markdown"] += "\n\n![Pixel](margen-asset:pixel)\n\n![Remote](https://example.com/pic.png)"
     record = publish(client, payload)
     assert any("imagen no incluida" in w for w in record["warnings"])

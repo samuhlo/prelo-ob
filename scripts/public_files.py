@@ -17,6 +17,7 @@ assets/LICENSE.anaco
 assets/prelo-logo.svg
 compose.yaml
 docs/desarrollo.md
+docs/beta-acceptance.json
 docs/instalacion.md
 docs/privacidad.md
 docs/producto.md
@@ -71,6 +72,9 @@ scripts/restore_backup.py
 scripts/run_bridge.py
 scripts/set_version.py
 scripts/setup.py
+scripts/check_beta.py
+scripts/fetch_epubcheck.py
+scripts/smoke_service.py
 scripts/validate_epub.py
 server/.dockerignore
 server/Dockerfile
@@ -98,6 +102,7 @@ server/tests/test_import_integrity.py
 server/tests/test_job_control.py
 server/tests/test_library_usb.py
 server/tests/test_pipeline.py
+server/tests/test_image_boundaries.py
 server/tests/test_staged_editor.py
 server/tests/test_storage_recovery.py
 server/uv.lock
@@ -105,6 +110,7 @@ tests/test_installation.py
 tests/test_install_recovery.py
 tests/test_public_boundary.py
 tests/test_versions.py
+tests/test_beta_gate.py
 versions.json
 """.strip().splitlines())
 

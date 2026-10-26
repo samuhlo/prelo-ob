@@ -14,7 +14,7 @@ El instalador no instala ni reinicia Docker/Colima, no cambia permisos del siste
 
 ## Instalación guiada
 
-1. Descarga `prelo-macos-0.7.0.zip` desde la [release 0.7.0](https://github.com/samuhlo/prelo-ob/releases/tag/0.7.0).
+1. Descarga `prelo-macos-<versión>.zip` desde [Releases](https://github.com/samuhlo/prelo-ob/releases). Usa el plugin, servicio y conectores de la misma versión.
 2. Descomprime el ZIP y cierra Obsidian.
 3. Abre `Instalar Prelo.command` e indica la ruta del vault: debe contener la carpeta `.obsidian`.
 4. Elige si quieres usar Codex para IA. Para empezar, responde **N**: Revista de estudio funciona sin IA.
@@ -54,9 +54,9 @@ Usa primero notas y una publicación de prueba. Este recorrido debe verificarse 
 
 ## Conectar otro ordenador
 
-Instala BRAT desde Complementos de la comunidad, añade `samuhlo/prelo-ob` y selecciona `0.7.0`. BRAT instala los archivos compilados de la release. [Guía de BRAT](https://github.com/TfTHacker/obsidian42-brat/blob/main/BRAT-DEVELOPER-GUIDE.md).
+Instala BRAT desde Complementos de la comunidad, añade `samuhlo/prelo-ob` y selecciona la misma versión que el servicio. BRAT instala los archivos compilados de la release. [Guía de BRAT](https://github.com/TfTHacker/obsidian42-brat/blob/main/BRAT-DEVELOPER-GUIDE.md).
 
-Si prefieres instalación manual, descarga `prelo-plugin-0.7.0.zip` y copia su carpeta `margen` a `.obsidian/plugins/` de tu vault. Activa Prelo. El nombre técnico de esa carpeta se conserva por compatibilidad.
+Si prefieres instalación manual, descarga `prelo-plugin-<versión>.zip` y copia su carpeta `margen` a `.obsidian/plugins/` de tu vault. Activa Prelo. El nombre técnico de esa carpeta se conserva por compatibilidad.
 
 El plugin necesita llegar al servicio de tu Mac. Para acceso desde otros ordenadores, prepara una dirección HTTPS en tu red privada, por ejemplo mediante tu VPN o proxy privado. La instalación inicial escucha solo en `127.0.0.1:8765`: no es accesible desde otro equipo sin esa configuración de red. No abras el puerto al internet público.
 
@@ -87,7 +87,7 @@ Después ejecuta el instalador con `--ai codex`. Prelo mantiene la autenticació
 
 Una edición con IA se prepara por etapas. Primero, una llamada propone el plan del número a partir de un resumen de cada nota: título, ruta, encabezados y comienzo. Si la selección es pequeña, recibe las notas completas. Después, si la redacción o los apoyos lo requieren, cada nota se divide en partes de unos 20.000 caracteres, sin cortar bloques de código, y se redacta en llamadas paralelas. Cada parte se comprueba: si faltan cifras, comandos o imágenes de la fuente, se pide una vez más con esa lista. Las partes terminadas se guardan durante 30 días en la biblioteca, así que reintentar una edición fallida solo repite lo que faltaba.
 
-Ajustes opcionales del archivo `.env` del servicio (al cambiarlos, vuelve a ejecutar el instalador):
+Ajustes opcionales de `service.env` en Application Support/Prelo para el instalador público, o del `.env` de tu despliegue avanzado (aplica después la actualización por el mismo mecanismo con que instalaste):
 
 | Ajuste | Uso |
 |---|---|
@@ -153,3 +153,8 @@ sh "Instalar Prelo.command" --recover
 No borres `update-in-progress.json` ni el backup para saltarte el aviso. Una recuperación rechaza configuraciones antiguas con bind mounts. Las copias contienen datos privados y nunca deben adjuntarse a incidencias. La exportación de biblioteca es una copia lógica de procedencia, anotaciones y archivos protegidos/pendientes; no garantiza conservar todos los EPUB no protegidos.
 
 Este procedimiento corresponde al instalador público (`prelo`). Las instalaciones gestionadas por un homelab (`margen`) conservan su despliegue propio; no ejecutes el instalador público encima de ellas.
+
+
+Desde una versión anterior a 0.11, instala esta candidata con el paquete completo/BRAT o con copia manual del plugin y Obsidian cerrado: la versión antigua todavía no incorpora la nueva recuperación del autoactualizador. Actualiza también el conector USB antes de solicitar retiradas; las órdenes anteriores sin un lector identificado quedan pendientes de revisión, no se ejecutan por su cuenta.
+
+Los adjuntos admiten hasta 20 megapíxeles y 20.000 píxeles por lado, con 80 megapíxeles por edición, además del límite de bytes. La cuota de biblioteca controla EPUB e imágenes; catálogo/procedencia, copias privadas del instalador y archivos nativos del Mac tienen un alcance distinto. Conserva espacio libre para las copias y la recuperación.

@@ -101,6 +101,9 @@ def request_removal(root, path, device=""):
     with database(root) as db:
         existing = db.execute("SELECT * FROM kobo_commands WHERE state IN ('pending','executing') AND path=?", (path,)).fetchone()
         if existing:
+            target = db.execute("SELECT device FROM kobo_command_targets WHERE id=?", (existing["id"],)).fetchone()
+            if not target or target["device"] != device:
+                raise ValueError("Ya existe una orden para otro lector con ese nombre. Revisa las órdenes pendientes.")
             if existing["kind"] == "remove":
                 return row(existing)
             raise ValueError("Ese libro tiene una subida pendiente. Cancélala en su lugar.")

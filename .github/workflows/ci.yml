@@ -54,3 +54,9 @@ jobs:
       - run: python -m pip install pip-audit
       - run: python -m pip_audit -r server/requirements.lock --no-deps --disable-pip
       - run: docker build -t prelo-ci server
+      - run: python scripts/smoke_service.py --image prelo-ci --output data/validation
+      - run: python scripts/fetch_epubcheck.py
+      - run: python scripts/validate_epub.py data/validation/study.epub
+      - run: python scripts/validate_epub.py data/validation/retro.epub
+      - run: python -m pip install pymupdf
+      - run: python scripts/check_caption_layout.py data/validation/retro.epub --output data/validation/layout
