@@ -32,6 +32,8 @@ plugin/src/brand.ts
 plugin/src/core.ts
 plugin/src/delivery.ts
 plugin/src/editorial.ts
+plugin/src/installation.ts
+plugin/src/connection.ts
 plugin/src/main.ts
 plugin/src/reader.ts
 plugin/src/selection.ts
@@ -49,6 +51,8 @@ plugin/tests/reader.test.ts
 plugin/tests/selection.test.ts
 plugin/tests/session.test.ts
 plugin/tests/updates.test.ts
+plugin/tests/installation.test.ts
+plugin/tests/connection.test.ts
 plugin/tests/validation.test.ts
 plugin/tsconfig.json
 scripts/audit_public.py
