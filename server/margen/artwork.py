@@ -7,7 +7,9 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 import re
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse, unquote
 from pathlib import Path
 import httpx
@@ -145,6 +147,10 @@ def codex_artwork(request: ArtworkRequest):
         SLOTS.release()
 
 
+def image_concurrency():
+    return max(1, int(os.getenv("AI_IMAGE_CONCURRENCY", "3")))
+
+
 def generate_visuals(request: PublicationRequest, plan: EditorialPlan, cache_dir: Path, progress=None):
     if request.style != "retro90" or request.artwork != "generated":
         return []
@@ -154,10 +160,10 @@ def generate_visuals(request: PublicationRequest, plan: EditorialPlan, cache_dir
         raise ValueError("La generación visual de esta versión utiliza el puente local de Codex con ChatGPT.")
     cache_dir.mkdir(parents=True, exist_ok=True)
     notes = {n.id: n for n in request.notes}
-    illustrations = []
-    for index, brief in enumerate(plan.visuals):
-        if progress:
-            progress(f"Ilustración {index + 1} de {len(plan.visuals)}: {brief.concept}")
+    total, done, lock = len(plan.visuals), 0, threading.Lock()
+
+    def illustrate(brief):
+        nonlocal done
         job = ArtworkRequest(title=plan.title, visual=brief, sources=[notes[i] for i in brief.source_ids])
         prompt = image_prompt(job)
         digest = hashlib.sha256(prompt.encode()).hexdigest()
@@ -183,8 +189,24 @@ def generate_visuals(request: PublicationRequest, plan: EditorialPlan, cache_dir
         if not raw.startswith(b"\xff\xd8\xff"):
             raise ValueError("La ilustración recibida no es un JPEG.")
         if not reused:
-            temporary = cached.with_suffix(".tmp")
+            temporary = cached.with_suffix(f".{threading.get_ident()}.tmp")
             temporary.write_bytes(raw)
             temporary.replace(cached)
-        illustrations.append({**brief.model_dump(), **encoded, "prompt": prompt, "cache_hit": reused})
+        with lock:
+            done += 1
+            if progress:
+                progress(f"Ilustraciones: {done} de {total} listas.")
+        return {**brief.model_dump(), **encoded, "prompt": prompt, "cache_hit": reused}
+
+    if progress:
+        progress(f"Ilustraciones: 0 de {total} listas.")
+    # Several images at once; the bridge's own slots still bound the Codex processes.
+    pool = ThreadPoolExecutor(max_workers=image_concurrency(), thread_name_prefix="margen-art")
+    try:
+        futures = [pool.submit(illustrate, brief) for brief in plan.visuals]
+        illustrations = [future.result() for future in futures]
+    except BaseException:
+        pool.shutdown(wait=True, cancel_futures=True)
+        raise
+    pool.shutdown(wait=True)
     return illustrations

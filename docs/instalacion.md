@@ -95,6 +95,7 @@ Ajustes opcionales del archivo `.env` del servicio (al cambiarlos, vuelve a ejec
 | `AI_MODEL_WRITE`, `AI_EFFORT_WRITE` | Modelo y esfuerzo de la redacción por partes. |
 | `AI_MODEL`, `AI_EFFORT` | Valores por defecto de ambas etapas. Vacíos, Codex usa su modelo predeterminado. |
 | `AI_CONCURRENCY` | Llamadas simultáneas (4 por defecto; con 4, una edición de 13 notas tardó la mitad que con 2). |
+| `AI_IMAGE_CONCURRENCY` | Ilustraciones de Revista 90's a la vez (3 por defecto). El puente no supera `AI_CONCURRENCY` procesos de Codex. |
 | `AI_CHUNK_CHARS`, `AI_TIMEOUT` | Tamaño de cada parte y segundos por llamada. |
 
 Con Codex, la configuración recomendada es `AI_MODEL=gpt-6.1-sol`, con `AI_EFFORT_PLAN=high` para el plan y `AI_EFFORT_WRITE=medium` para la redacción.

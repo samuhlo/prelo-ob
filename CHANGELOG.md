@@ -1,5 +1,15 @@
 # Cambios
 
+## Sin publicar
+
+- Pestaña Kobo renovada: libros del lector con progreso y fecha de lectura, revistas de Prelo y otros EPUB, búsqueda y filtros.
+- Desde cualquier equipo: quitar libros del Kobo, enviar cualquier EPUB y cancelar cambios pendientes; el Mac los aplica en la próxima conexión.
+- Subrayados de cada libro, incluidos los EPUB que no son de Prelo, con acceso a su nota en el vault.
+- Al eliminar una revista de la biblioteca se puede quitar también del Kobo.
+- Las ilustraciones de Revista 90's se generan de tres en tres (`AI_IMAGE_CONCURRENCY`).
+- Repaso visual: botones alineados, selección más compacta, vistas estrechas legibles y títulos de nota sin encabezados corruptos.
+- Una revista en preparación se mantiene al actualizar o recargar el plugin.
+
 ## 0.9.2 — Estado real del Kobo y revistas a medias
 
 - El estado de cada revista enviada refleja lo que hay en el Kobo: «Copiada · aparecerá al desconectar el Kobo», «En tu Kobo» con el porcentaje leído, «el Kobo no la importó» o «Ya no está en el Kobo», con la opción de volver a enviarla. El conector del Mac lee la base del lector en cada conexión.

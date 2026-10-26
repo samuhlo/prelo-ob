@@ -215,16 +215,22 @@ def test_content_specific_artwork_and_cache(client, tmp_path, monkeypatch):
     from margen.epub import build_epub
     import margen.artwork as art
     request, plan, data = retro_fixture()
-    calls = []
+    calls, running, peak = [], [0], [0]
     def fake(job):
         calls.append(job)
+        running[0] += 1
+        peak[0] = max(peak[0], running[0])
+        # The cover is the slowest: results must still follow the plan's order.
+        time.sleep(.15 if job.visual.id == "cover" else .05)
+        running[0] -= 1
         return {"data": data, "media_type": "image/jpeg"}
     monkeypatch.setenv("AI_PROVIDER", "codex-cli")
     monkeypatch.setattr(art, "codex_artwork", fake)
     first = generate_visuals(request, plan, tmp_path / "cache")
     second = generate_visuals(request, plan, tmp_path / "cache")
     assert len(calls) == 3 and all(v["cache_hit"] for v in second)
-    assert calls[2].sources[0].id == "a"
+    assert [v["id"] for v in first] == ["cover", "networks", "instances"] and peak[0] > 1
+    assert next(c for c in calls if c.visual.id == "instances").sources[0].id == "a"
     assert "Una imagen es una plantilla" in first[2]["prompt"]
     edition = str(uuid.uuid4())
     folder = tmp_path / edition
