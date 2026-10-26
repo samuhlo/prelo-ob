@@ -303,6 +303,7 @@ class Worker:
             for offset in range(0, len(raw), 100):
                 resolved += self.api("/v1/annotations", {"highlights": raw[offset:offset + 100]})["highlights"]
             result = append_notes(self.vault, self.config["highlights_folder"], resolved)
+            changes = self.carry_out(mount, device)
             sent = 0
             for publication in self.api("/v1/deliveries"):
                 identity = publication["id"]
@@ -332,12 +333,59 @@ class Worker:
                     raise ValueError("La verificación final de la copia USB falló.")
                 self.api(f"/v1/deliveries/{identity}/receipt", {"checksum": checksum, "device": device})
                 sent += 1
-            self.last_sync = {"at": stamp(), **result, "sent": sent, "device": device}
+            self.last_sync = {"at": stamp(), **result, "sent": sent, "changes": changes, "device": device}
             atomic_json(self.state / "last-sync.json", self.last_sync)
-            self.report("ready", f'{result["added"]} subrayados nuevos o actualizados · {sent} revistas copiadas; aparecerán al desconectar el Kobo.' if sent else f'{result["added"]} subrayados nuevos o actualizados.', device)
+            summary = [f'{result["added"]} subrayados nuevos o actualizados']
+            if sent:
+                summary.append(f"{sent} revistas copiadas")
+            if changes:
+                summary.append(f"{changes} cambios aplicados")
+            self.report("ready", " · ".join(summary) + (". Los cambios aparecerán al desconectar el Kobo." if sent or changes else "."), device)
             if self.config.get("auto_eject", True):
                 subprocess.run(["/usr/sbin/diskutil", "eject", str(mount)], check=True, capture_output=True, timeout=25)
             return self.last_sync
+
+    def carry_out(self, mount, device):
+        """Removals and uploads requested from any computer since the last connection."""
+        done = 0
+        for command in self.api("/v1/kobo/commands"):
+            identity = command["id"]
+            if not re.fullmatch(r"[a-f0-9-]{36}", identity):
+                raise ValueError("Orden no válida.")
+            try:
+                parts = command["path"].split("/")
+                if any(p in {"", ".", ".."} or p.startswith(".") for p in parts) or not command["path"].lower().endswith(".epub"):
+                    raise ValueError("Ruta de libro no válida en el Kobo.")
+                target = mount.joinpath(*parts)
+                self.report("working", "Aplicando los cambios pedidos desde Prelo.", device)
+                if command["kind"] == "remove":
+                    target.unlink(missing_ok=True)
+                elif command["kind"] == "upload":
+                    data = self.api(f"/v1/kobo/uploads/{identity}", binary=True)
+                    if digest(data) != command["sha256"]:
+                        raise ValueError("La subida no coincide con el archivo enviado.")
+                    if target.exists():
+                        if digest(target.read_bytes()) != command["sha256"]:
+                            raise ValueError("Ya hay en el Kobo otro libro con ese nombre. Cámbiale el nombre y vuelve a enviarlo.")
+                    else:
+                        partial = mount / (".margen-" + identity + ".partial")
+                        with partial.open("wb") as stream:
+                            stream.write(data)
+                            stream.flush()
+                            os.fsync(stream.fileno())
+                        if digest(partial.read_bytes()) != command["sha256"]:
+                            partial.unlink(missing_ok=True)
+                            raise ValueError("La copia USB no coincide; queda pendiente.")
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        partial.rename(target)
+                else:
+                    raise ValueError("Orden desconocida.")
+            except ValueError as error:
+                self.api(f"/v1/kobo/commands/{identity}/done", {"ok": False, "message": str(error)[:500]})
+                continue
+            self.api(f"/v1/kobo/commands/{identity}/done", {"ok": True, "message": ""})
+            done += 1
+        return done
 
     def run(self):
         seen, request_id = None, ""
@@ -352,7 +400,7 @@ class Worker:
                 else:
                     mount = mounts[0]
                     state = self.api("/v1/device")
-                    pending = self.api("/v1/deliveries")
+                    pending = self.api("/v1/deliveries") or self.api("/v1/kobo/commands")
                     if seen != str(mount) or state["request"] != request_id or pending:
                         self.synchronize(mount)
                         seen = str(mount)

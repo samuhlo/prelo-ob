@@ -16,7 +16,7 @@ from .editor import ai_available, plan_publication
 from .epub import build_epub
 from .highlights import resolve
 from .artwork import generate_visuals
-from . import jobs, library
+from . import jobs, kobo, library
 from pydantic import BaseModel, Field
 from typing import Annotated, Literal
 
@@ -356,6 +356,78 @@ def update_device(payload: DeviceStatus):
 @app.post("/v1/device/sync", dependencies=[Depends(auth)])
 def sync_device():
     return library.request_sync(data_root())
+
+
+def invalid(exc):
+    return HTTPException(422, str(exc))
+
+
+class Removal(BaseModel):
+    path: str = Field(min_length=1, max_length=400)
+
+
+class CommandResult(BaseModel):
+    ok: bool
+    message: str = Field(default="", max_length=500)
+
+
+@app.get("/v1/kobo", dependencies=[Depends(auth)])
+def kobo_overview():
+    return kobo.overview(data_root())
+
+
+@app.get("/v1/kobo/highlights", dependencies=[Depends(auth)])
+def kobo_highlights(volume: str):
+    return {"highlights": kobo.highlights(data_root(), volume)}
+
+
+@app.post("/v1/kobo/removals", dependencies=[Depends(auth)])
+def kobo_removal(payload: Removal):
+    try:
+        return kobo.request_removal(data_root(), payload.path)
+    except ValueError as exc:
+        raise invalid(exc)
+
+
+@app.post("/v1/kobo/uploads", dependencies=[Depends(auth)])
+async def kobo_upload(request: Request, filename: str):
+    if int(request.headers.get("content-length") or 0) > kobo.MAX_UPLOAD:
+        raise HTTPException(413, "El EPUB supera los 200 MB.")
+    try:
+        return kobo.upload(data_root(), filename, await request.body())
+    except ValueError as exc:
+        raise invalid(exc)
+
+
+@app.get("/v1/kobo/uploads/{command_id}", dependencies=[Depends(auth)])
+def kobo_upload_file(command_id: str):
+    try:
+        return FileResponse(kobo.upload_file(data_root(), command_id), media_type="application/epub+zip")
+    except (ValueError, FileNotFoundError):
+        raise HTTPException(404, "Subida no encontrada.")
+
+
+@app.get("/v1/kobo/commands", dependencies=[Depends(auth)])
+def kobo_pending():
+    return kobo.pending(data_root())
+
+
+@app.delete("/v1/kobo/commands/{command_id}", dependencies=[Depends(auth)])
+def kobo_cancel(command_id: str):
+    try:
+        kobo.cancel(data_root(), command_id)
+        return {"cancelled": command_id}
+    except ValueError as exc:
+        raise invalid(exc)
+
+
+@app.post("/v1/kobo/commands/{command_id}/done", dependencies=[Depends(auth)])
+def kobo_done(command_id: str, payload: CommandResult):
+    try:
+        kobo.complete(data_root(), command_id, payload.ok, payload.message)
+        return {"done": command_id}
+    except ValueError as exc:
+        raise invalid(exc)
 
 
 @app.post("/v1/annotations", dependencies=[Depends(auth)])

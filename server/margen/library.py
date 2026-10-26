@@ -48,6 +48,10 @@ def database(root):
             CREATE TABLE IF NOT EXISTS drafts (
                 id TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS kobo_commands (
+                id TEXT PRIMARY KEY, kind TEXT NOT NULL, path TEXT NOT NULL, title TEXT NOT NULL,
+                sha256 TEXT, state TEXT NOT NULL, message TEXT, created_at TEXT NOT NULL, done_at TEXT
+            );
         """)
         try:
             yield db

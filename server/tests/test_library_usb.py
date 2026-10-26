@@ -278,3 +278,50 @@ def test_library_reports_where_each_delivery_really_is(environment, tmp_path):
     (mount / second["filename"]).unlink()
     worker.synchronize(mount)
     assert state(second) == "missing"
+
+
+def epub_bytes(title="Libro"):
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as book:
+        book.writestr("mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED)
+        book.writestr("META-INF/container.xml", "<container/>")
+        book.writestr("content.opf", f"<title>{title}</title>")
+    return output.getvalue()
+
+
+def test_kobo_is_managed_from_any_computer_on_the_next_connection(environment, tmp_path):
+    client, root = environment
+    vault, mount = tmp_path / "vault", tmp_path / "KOBOeReader"
+    vault.mkdir()
+    make_kobo(mount, "otro-libro.epub")
+    (mount / "otro-libro.epub").write_bytes(epub_bytes("Otro"))
+    worker = Worker({"vault": str(vault), "state": str(tmp_path / "worker"), "highlights_folder": "Subrayados", "auto_eject": False})
+    def api(route, body=None, binary=False):
+        response = client.get(route, headers=AUTH) if body is None else client.post(route, headers=AUTH, json=body)
+        response.raise_for_status()
+        return response.content if binary else response.json()
+    worker.api = api
+    worker.synchronize(mount)
+    overview = api("/v1/kobo")
+    book = next(b for b in overview["books"] if b["path"] == "otro-libro.epub")
+    assert book["highlights"] == 1
+    assert api(f"/v1/kobo/highlights?volume={book['id']}")["highlights"][0]["text"] == "Una imagen es una plantilla."
+    # Requests from another computer: remove a sideloaded book and send a new EPUB.
+    assert client.post("/v1/kobo/removals", headers=AUTH, json={"path": "otro-libro.epub"}).status_code == 200
+    for bad in ["../fuera.epub", ".kobo/KoboReader.epub", "/abs.epub", "nota.txt", "no-esta.epub"]:
+        assert client.post("/v1/kobo/removals", headers=AUTH, json={"path": bad}).status_code == 422
+    sent = client.post("/v1/kobo/uploads?filename=Mi%20libro.epub", headers=AUTH, content=epub_bytes())
+    assert sent.status_code == 200 and sent.json()["path"] == "Mi libro.epub"
+    assert client.post("/v1/kobo/uploads?filename=x.epub", headers=AUTH, content=b"no es un epub").status_code == 422
+    assert client.post("/v1/kobo/uploads?filename=margen-falso.epub", headers=AUTH, content=epub_bytes()).status_code == 422
+    assert len(api("/v1/kobo/commands")) == 2
+    worker.synchronize(mount)
+    assert not (mount / "otro-libro.epub").exists()
+    assert (mount / "Mi libro.epub").read_bytes() == epub_bytes()
+    assert not api("/v1/kobo/commands")
+    assert {c["state"] for c in api("/v1/kobo")["commands"]} == {"done"}
+    assert not list((root / ".uploads").iterdir())
+    # A pending order can be withdrawn before the reader is connected.
+    queued = client.post("/v1/kobo/uploads?filename=Otro.epub", headers=AUTH, content=epub_bytes()).json()
+    assert client.delete(f"/v1/kobo/commands/{queued['id']}", headers=AUTH).status_code == 200
+    assert not api("/v1/kobo/commands")
