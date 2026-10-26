@@ -1,8 +1,9 @@
-Prelo 0.9.1 actualiza el plugin desde el propio Obsidian.
+Prelo 0.9.2 dice dónde está realmente cada revista y deja de mantener selecciones a medias.
 
-- «Actualizar ahora», en el aviso de Prelo y en Ajustes, descarga la nueva versión de la release, comprueba sus sumas SHA-256 y reinicia el plugin sin tocar `data.json`. Si algo no coincide, no cambia ningún archivo.
-- «Novedades» abre la release en GitHub.
+- El estado de una revista enviada refleja lo que hay en el Kobo: copiada y pendiente de importar, en tu Kobo con el porcentaje leído, no importada o retirada del lector, con la opción de volver a enviarla.
+- Preparar revista empieza con «Empezar una revista» y «Para retomar». Al cerrar Prelo, la revista a medias se guarda como borrador compartido entre equipos y desaparecen los marcadores de selección.
+- «Guardar y salir», «Descartar» y «Cancelar edición» para una revista que se está generando.
 
-Desde 0.9.0 hay que instalar esta versión a mano una última vez, con BRAT o el ZIP del plugin; las siguientes ya se instalan con el botón. Cada equipo se actualiza por separado. El servicio del Mac no cambia respecto a 0.9.0.
+Actualiza el servicio y los conectores del Mac con el paquete macOS: el conector USB informa del contenido del Kobo y el servicio permite cancelar ediciones. El plugin se actualiza con «Actualizar ahora».
 
-Assets: `prelo-plugin-0.9.1.zip`, `prelo-macos-0.9.1.zip`, `main.js`, `manifest.json`, `styles.css` y `SHA256SUMS`.
+Assets: `prelo-plugin-0.9.2.zip`, `prelo-macos-0.9.2.zip`, `main.js`, `manifest.json`, `styles.css` y `SHA256SUMS`.

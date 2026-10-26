@@ -1,6 +1,6 @@
 # Cambios
 
-## Sin publicar
+## 0.9.2 — Estado real del Kobo y revistas a medias
 
 - El estado de cada revista enviada refleja lo que hay en el Kobo: «Copiada · aparecerá al desconectar el Kobo», «En tu Kobo» con el porcentaje leído, «el Kobo no la importó» o «Ya no está en el Kobo», con la opción de volver a enviarla. El conector del Mac lee la base del lector en cada conexión.
 - Preparar revista empieza con «Empezar una revista» y la lista «Para retomar». Al cerrar Prelo, la revista a medias se guarda como borrador compartido y desaparecen los marcadores de selección; si el Mac no responde, se guarda en el equipo hasta poder compartirla.
