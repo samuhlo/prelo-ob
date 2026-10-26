@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 import yaml
+from . import __version__
 
 
 def digest(value):
@@ -325,7 +326,7 @@ class Worker:
         return data if binary else json.loads(data)
 
     def report(self, state, message, device=""):
-        return self.api("/v1/device", {"state": state, "message": message, "device": device, "last_sync": self.last_sync})
+        return self.api("/v1/device", {"state": state, "message": message, "device": device, "last_sync": self.last_sync, "version": __version__})
 
     def synchronize(self, mount):
         with (self.state / "usb.lock").open("a") as lock:

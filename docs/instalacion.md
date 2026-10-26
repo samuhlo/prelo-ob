@@ -138,3 +138,18 @@ launchctl bootout "gui/$(id -u)/local.prelo.codex-bridge"
 ```
 
 El segundo puede no existir si no activaste IA. Retira sus archivos `local.prelo.*.plist` de `~/Library/LaunchAgents/` para que no se inicien en el siguiente acceso. Detén el servicio desde Docker Desktop o Compose; consulta `installation.json` para el contexto usado. Conserva Application Support/Prelo, sus copias y el volumen Docker mientras quieras recuperar la biblioteca. Eliminar el plugin o detener el servicio no necesita borrar notas, EPUB ni volúmenes.
+
+
+## Recuperar una actualización interrumpida
+
+Cierra Obsidian en todos los equipos y espera a que terminen las ediciones y la copia USB antes de actualizar. El instalador público rechaza un servicio ocupado. Guarda una copia privada de la aplicación, entorno nativo, ajustes, agentes y plugin, además de exportar la biblioteca cuando el servicio está disponible. Conserva también la identidad exacta de la imagen Docker anterior.
+
+Si una etapa falla, intenta restaurar esos archivos y la imagen anterior sin borrar el volumen. Si se interrumpe el proceso por completo, la siguiente instalación se detiene al detectar el registro pendiente. Desde el paquete de la versión nueva puedes ejecutar:
+
+```sh
+sh "Instalar Prelo.command" --recover
+```
+
+No borres `update-in-progress.json` ni el backup para saltarte el aviso. Una recuperación rechaza configuraciones antiguas con bind mounts. Las copias contienen datos privados y nunca deben adjuntarse a incidencias. La exportación de biblioteca es una copia lógica de procedencia, anotaciones y archivos protegidos/pendientes; no garantiza conservar todos los EPUB no protegidos.
+
+Este procedimiento corresponde al instalador público (`prelo`). Las instalaciones gestionadas por un homelab (`margen`) conservan su despliegue propio; no ejecutes el instalador público encima de ellas.

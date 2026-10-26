@@ -6,6 +6,8 @@ import uuid
 import zipfile
 import io
 import threading
+import time
+import httpx
 from pathlib import Path
 from fastapi import FastAPI, Depends, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -21,6 +23,7 @@ from pydantic import BaseModel, Field
 from typing import Annotated, Literal
 
 BUILD_LOCK = threading.Lock()
+BRIDGE_STATUS = {}
 
 
 def data_root():
@@ -81,9 +84,28 @@ def health():
 
 @app.get("/v1/status", dependencies=[Depends(auth)])
 def status():
-    return {"ai_available": ai_available(), "model": os.getenv("AI_MODEL") or (
-        "Codex · cuenta de ChatGPT" if os.getenv("AI_PROVIDER", "").startswith("codex") else ""
-    ), "image_generation_available": os.getenv("AI_PROVIDER") in {"codex-bridge", "codex-cli"}}
+    configured = ai_available()
+    ready, bridge_version = configured, None
+    if configured and os.getenv("AI_PROVIDER") == "codex-bridge":
+        url = os.environ["CODEX_BRIDGE_URL"].rstrip("/")
+        cached = BRIDGE_STATUS.get(url)
+        if not cached or time.monotonic() - cached[0] > 30:
+            try:
+                with httpx.Client(timeout=2, follow_redirects=False) as client:
+                    response = client.get(url + "/health")
+                    response.raise_for_status()
+                    health = response.json()
+            except Exception:
+                health = {}
+            cached = (time.monotonic(), health)
+            BRIDGE_STATUS.clear()
+            BRIDGE_STATUS[url] = cached
+        ready = cached[1].get("status") == "ok" and cached[1].get("authenticated") is True
+        bridge_version = cached[1].get("version")
+    return {"ai_configured": configured, "ai_available": ready, "bridge_version": bridge_version,
+            "protocol_version": 2, "model": os.getenv("AI_MODEL") or (
+                "Codex · cuenta de ChatGPT" if os.getenv("AI_PROVIDER", "").startswith("codex") else ""),
+            "image_generation_available": ready and os.getenv("AI_PROVIDER") in {"codex-bridge", "codex-cli"}}
 
 
 def load_publication(edition_id):
@@ -323,6 +345,7 @@ def delivery_receipt(edition_id: str, payload: Receipt):
 
 
 class DeviceStatus(BaseModel):
+    version: str = Field(default="", max_length=40)
     state: Literal["disconnected", "working", "ready", "error"]
     message: str = Field(max_length=500)
     device: str = Field(default="", max_length=100)

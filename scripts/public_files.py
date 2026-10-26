@@ -59,6 +59,7 @@ scripts/audit_public.py
 scripts/build_release.py
 scripts/check_caption_layout.py
 scripts/install.py
+scripts/install_transaction.py
 scripts/install_bridge.py
 scripts/install_common.py
 scripts/install_plugin.py
@@ -101,6 +102,7 @@ server/tests/test_staged_editor.py
 server/tests/test_storage_recovery.py
 server/uv.lock
 tests/test_installation.py
+tests/test_install_recovery.py
 tests/test_public_boundary.py
 tests/test_versions.py
 versions.json

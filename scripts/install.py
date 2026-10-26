@@ -14,6 +14,7 @@ from install_common import read_env, run, validate_connection, validate_vault, w
 from install_plugin import install as install_plugin
 from install_bridge import install as install_bridge
 from install_usb import install as install_usb
+import install_transaction
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN_FILES = ("main.js", "manifest.json", "styles.css")
@@ -85,7 +86,7 @@ def preflight(runtime, ai, root=ROOT):
     return context
 
 
-def install_service(vault, *, ai=None, root=ROOT, runtime=None, check=False):
+def _install_service(vault, *, ai=None, root=ROOT, runtime=None, check=False):
     vault = validate_vault(vault)
     runtime = Path(runtime or Path.home() / "Library/Application Support/Prelo").resolve()
     env_file = runtime / "service.env"
@@ -113,7 +114,7 @@ def install_service(vault, *, ai=None, root=ROOT, runtime=None, check=False):
             shutil.copytree(Path(root) / name, app / name, dirs_exist_ok=True,
                             ignore=shutil.ignore_patterns(".venv", "__pycache__", ".pytest_cache", "*.egg-info"))
         (app / "scripts").mkdir(exist_ok=True)
-        for name in ["install.py", "install_common.py", "install_plugin.py", "install_bridge.py", "install_usb.py", "run_bridge.py"]:
+        for name in ["install.py", "install_common.py", "install_plugin.py", "install_bridge.py", "install_usb.py", "run_bridge.py", "install_transaction.py"]:
             shutil.copy2(Path(root) / "scripts" / name, app / "scripts" / name)
         for name in ["compose.yaml", "manifest.json"]:
             shutil.copy2(Path(root) / name, app / name)
@@ -149,8 +150,12 @@ def install_service(vault, *, ai=None, root=ROOT, runtime=None, check=False):
     request("http://127.0.0.1:8765", "/v1/status", env["MARGEN_TOKEN"])
     print("4/5 · Configurando la sincronización USB…", flush=True)
     install_usb(runtime, env_file, vault=vault, label="local.prelo.kobo")
+    plugin_state = vault / ".obsidian/plugins/margen/data.json"
+    settings = json.loads(plugin_state.read_text()).get("settings", {}) if plugin_state.exists() else {}
+    usb_settings = json.loads((runtime / "usb.json").read_text())
     connection = {"serverUrl": "http://127.0.0.1:8765", "token": env["MARGEN_TOKEN"],
-                  "outputFolder": "Prelo/Publicaciones", "highlightsFolder": "Prelo/Subrayados"}
+                  "outputFolder": settings.get("outputFolder", "Prelo/Publicaciones"),
+                  "highlightsFolder": usb_settings["highlights_folder"]}
     write_private(runtime / "conexion-prelo.json", json.dumps(connection, indent=2))
     print("5/5 · Instalando el plugin…", flush=True)
     install_plugin(vault, root=app, connection=connection, enable=True)
@@ -160,14 +165,73 @@ def install_service(vault, *, ai=None, root=ROOT, runtime=None, check=False):
     print("El archivo privado de conexión se ha guardado en Application Support/Prelo; no lo publiques.")
 
 
+def backup_library(destination, token):
+    import zipfile
+    request = urllib.request.Request("http://127.0.0.1:8765/v1/backup", headers={"Authorization": "Bearer " + token})
+    with urllib.request.urlopen(request, timeout=300) as response:
+        with destination.open("wb") as output:
+            os.chmod(destination, 0o600)
+            while chunk := response.read(1024 * 1024):
+                output.write(chunk)
+            output.flush()
+            os.fsync(output.fileno())
+    with zipfile.ZipFile(destination) as archive:
+        if "catalogue.sql" not in archive.namelist() or archive.testzip():
+            raise ValueError("El backup previo no es íntegro. La actualización no ha comenzado.")
+
+
+def install_service(vault, *, ai=None, root=ROOT, runtime=None, check=False):
+    if check:
+        return _install_service(vault, ai=ai, root=root, runtime=runtime, check=True)
+    vault = validate_vault(vault)
+    runtime = Path(runtime or Path.home() / "Library/Application Support/Prelo").resolve()
+    journal = runtime / "update-in-progress.json"
+    if journal.exists():
+        raise ValueError("Hay una instalación interrumpida. Ejecuta el instalador con --recover antes de continuar.")
+    env = read_env(runtime / "service.env") if (runtime / "service.env").exists() else {}
+    selected_ai = ai or ("codex" if env.get("AI_PROVIDER") == "codex-bridge" else "none")
+    context = preflight(runtime, selected_ai, root)
+    online = occupied(8765)
+    if online:
+        state = request("http://127.0.0.1:8765", "/v1/library", env["MARGEN_TOKEN"])
+        if any(j.get("state") in {"running", "queued"} for j in state.get("jobs", [])) or state.get("device", {}).get("state") == "working":
+            raise ValueError("Espera a que terminen la generación y el USB antes de actualizar. Cierra Obsidian en todos los equipos.")
+    docker = ["docker", "--context", context]
+    ids = run([*docker, "ps", "-aq", "--filter", "label=com.docker.compose.project=prelo",
+               "--filter", "label=com.docker.compose.service=margen"], timeout=15).stdout.split()
+    image = run([*docker, "inspect", "--format", "{{.Image}}", ids[0]], timeout=15).stdout.strip() if ids else ""
+    backup = install_transaction.capture(runtime, vault, context, image)
+    try:
+        if online:
+            backup_library(backup / "library.zip", env["MARGEN_TOKEN"])
+    except BaseException:
+        journal.unlink()  # No mutation has started; keep the snapshot for inspection.
+        raise
+    try:
+        install_transaction.stop_agents()
+        _install_service(vault, ai=selected_ai, root=root, runtime=runtime)
+    except BaseException:
+        try:
+            install_transaction.recover(runtime)
+        except Exception as error:
+            raise RuntimeError("La actualización falló y la recuperación necesita revisión. Conserva el backup privado y ejecuta --recover.") from error
+        raise
+    journal.unlink()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--vault", type=Path)
     parser.add_argument("--ai", choices=["none", "codex"])
     parser.add_argument("--plugin-only", action="store_true")
     parser.add_argument("--connection", type=Path)
+    parser.add_argument("--recover", action="store_true", help="Recupera una instalación pública interrumpida desde su copia privada")
     parser.add_argument("--check", action="store_true", help="Comprueba requisitos sin instalar")
     args = parser.parse_args()
+    if args.recover:
+        install_transaction.recover(Path.home() / "Library/Application Support/Prelo")
+        print("Instalación anterior recuperada. Abre Obsidian y comprueba la biblioteca.")
+        return
     vault = args.vault
     if vault is None:
         if not sys.stdin.isatty():

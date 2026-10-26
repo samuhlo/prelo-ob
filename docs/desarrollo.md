@@ -60,3 +60,9 @@ Los prompts llevan una versión explícita y la caché distingue proveedor y des
 Estas comprobaciones no demuestran equivalencia semántica: negaciones, condiciones, relaciones y explicaciones añadidas necesitan revisión. El corpus sintético de pruebas cubre números de un dígito, cifras incrustadas en otras, valores negativos, comandos, imágenes con identificadores largos, planificación incompleta y caché por proveedor. Antes de una candidata, ejecutar también una muestra real con notas ficticias en castellano y gallego y revisar datos, negaciones, idioma y contenido añadido. Nunca usar notas privadas en CI.
 
 La maquetación se verifica con EPUBCheck y con `check_caption_layout.py` a varios tamaños. Un render en MuPDF no equivale a un Kobo físico; la comprobación del lector sigue siendo independiente.
+
+## Recuperación del instalador público
+
+El instalador registra una transacción privada antes de cambiar archivos. La copia incluye el entorno Python nativo y los agentes, además de aplicación/plugin/configuración; si hay servicio disponible, exporta una biblioteca comprobada antes de empezar. Un fallo restaura esos archivos y arranca la imagen Docker anterior por su identificador, sin reconstruirla ni borrar volúmenes. Un proceso interrumpido requiere `--recover` explícito. Se exige cerrar Obsidian en todos los equipos y no tener trabajos ni USB en curso; no se promete una actualización concurrente con ediciones o cambios de configuración de otros clientes.
+
+Las pruebas de instalación usan vaults/directorios temporales y sustitutos de Docker/launchd: inyectan fallos en entorno nativo, arranque de contenedor, paquete, USB y plugin, además de cubrir éxito, interrupción y rechazo de bind mounts antiguos. No equivalen a una instalación limpia real en otro Mac, que sigue siendo parte de la aceptación manual.
