@@ -28,9 +28,18 @@ def build(root=ROOT):
         raise ValueError('Build the plugin again: the release manifest is stale.')
     version = manifest['version']
     out = root / 'dist/releases' / version
+    expected = {"main.js", "manifest.json", "styles.css", "SHA256SUMS",
+                f"prelo-plugin-{version}.zip", f"prelo-macos-{version}.zip"}
+    if not out.resolve().is_relative_to(root.resolve()):
+        raise ValueError("Release output must remain inside the build directory.")
+    if out.exists() and any(p.name not in expected or p.is_symlink() for p in out.iterdir()):
+        raise ValueError("Release output contains unexpected files; use a clean output directory.")
     out.mkdir(parents=True, exist_ok=True)
     plugin_files = ['main.js', 'manifest.json', 'styles.css']
     for name in plugin_files:
+        source = root / 'dist/margen' / name
+        if source.is_symlink() or not source.resolve().is_relative_to(root.resolve()):
+            raise ValueError("Built plugin files must stay inside the build directory.")
         shutil.copyfile(root / 'dist/margen' / name, out / name)
     with zipfile.ZipFile(out / f'prelo-plugin-{version}.zip', 'w') as archive:
         for name in plugin_files:

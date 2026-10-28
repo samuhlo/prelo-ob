@@ -1,5 +1,6 @@
 """Install a built plugin on any desktop OS, preserving its state and other plugins."""
 import argparse
+import hashlib
 import json
 import shutil
 from datetime import datetime, timezone
@@ -7,6 +8,32 @@ from pathlib import Path
 from install_common import read_env, validate_connection, validate_vault, write_private
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+PLUGIN_FILES = ("main.js", "styles.css", "manifest.json")
+RESTORE_FILES = ("styles.css", "manifest.json", "main.js")
+
+
+def recover_plugin_update(target):
+    """Share the plugin's journal protocol; restore its entry file last."""
+    folder = target / ".prelo-update"
+    journal = folder / "pending.json"
+    if not journal.exists():
+        return
+    expected = json.loads(journal.read_text(encoding="utf-8-sig"))
+    complete = all((target/name).is_file() and hashlib.sha256((target/name).read_bytes()).hexdigest() == expected.get(name)
+                   for name in PLUGIN_FILES)
+    if not complete or expected.get("_phase") == "rollback":
+        previous = {name: None if expected.get("_absent:"+name) == "true" else (folder/name).read_bytes()
+                    for name in RESTORE_FILES}
+        write_private(journal, json.dumps({**expected, "_phase": "rollback"}))
+        for name, content in previous.items():
+            if content is None:
+                (target/name).unlink(missing_ok=True)
+            else:
+                write_private(target/name, content, mode=0o644)
+    # The explicit manual installation now owns the complete baseline.
+    journal.unlink()
 
 
 def install(vault, *, root=ROOT, connection=None, enable=False, second_brain=False):
@@ -47,15 +74,32 @@ def install(vault, *, root=ROOT, connection=None, enable=False, second_brain=Fal
         if enabled_path.exists():
             shutil.copy2(enabled_path, backup / "community-plugins.json")
     target.mkdir(parents=True, exist_ok=True)
-    for name, content in files.items():
-        write_private(target / name, content, mode=0o644)
-    if previous is None or connection is not None:
-        if config.exists() and config.read_bytes() != previous:
-            raise ValueError("Obsidian cambió su configuración durante la instalación. Cierra Obsidian y repite.")
-        write_private(config, json.dumps(state, indent=2, ensure_ascii=False) + "\n")
-    if enable and "margen" not in enabled:
-        enabled.append("margen")
-        write_private(enabled_path, json.dumps(enabled, indent=2) + "\n")
+    recover_plugin_update(target)
+    pending = target / ".prelo-update"
+    pending.mkdir(mode=0o700, exist_ok=True)
+    journal = pending / "pending.json"
+    expected = {name: hashlib.sha256(files[name]).hexdigest() for name in PLUGIN_FILES}
+    for name in PLUGIN_FILES:
+        if (target/name).is_file():
+            write_private(pending/name, (target/name).read_bytes())
+        else:
+            expected["_absent:"+name] = "true"
+    write_private(journal, json.dumps(expected))
+    try:
+        for name, content in files.items():
+            write_private(target / name, content, mode=0o644)
+        if previous is None or connection is not None:
+            if config.exists() and config.read_bytes() != previous:
+                raise ValueError("Obsidian cambió su configuración durante la instalación. Cierra Obsidian y repite.")
+            write_private(config, json.dumps(state, indent=2, ensure_ascii=False) + "\n")
+        if enable and "margen" not in enabled:
+            enabled.append("margen")
+            write_private(enabled_path, json.dumps(enabled, indent=2) + "\n")
+    except BaseException:
+        write_private(journal, json.dumps({**expected, "_phase": "rollback"}))
+        recover_plugin_update(target)
+        raise
+    journal.unlink()
     return target
 
 
