@@ -219,9 +219,18 @@ def required_tokens(source: str) -> set[str]:
 
 def missing_tokens(source: str, written: str) -> list[str]:
     flat = " ".join(written.split())
+    # Use the same tokenizer on both sides: a literal always matches itself,
+    # and the sign belongs to the value, so 5 cannot match -5.
+    literals = set(TOKEN.findall(flat))
+    assets = set(re.findall(r"margen-asset:[\w-]+", flat))
     return sorted(t for t in required_tokens(source) if not (
-        re.search(r"(?<![\d.,:/])" + re.escape(t) + r"(?!\d|[.,:/]\d)", flat)
-        if re.fullmatch(r"[-+]?\d+(?:[.,:/]\d+)*", t) else t in flat))
+        t in assets if t.startswith("margen-asset:") else
+        t in literals if re.fullmatch(r"[-+]?\d+(?:[.,:/]\d+)*", t) else t in flat))
+
+
+def missing_assets(source: str, written: str) -> list[str]:
+    return sorted(set(re.findall(r"margen-asset:[\w-]+", source)) -
+                  set(re.findall(r"margen-asset:[\w-]+", written)))
 
 
 def make_outline(request: PublicationRequest, cache: Cache):
@@ -313,7 +322,7 @@ class Writer:
                 cache.forget("write", self.instructions, attempt_payload, self.schema)
                 continue
             missing = missing_tokens(source, part.markdown) if self.check else (
-                sorted(t for t in re.findall(r"margen-asset:[\w-]+", source) if t not in part.markdown)
+                missing_assets(source, part.markdown)
                 if request.writing_mode == "review" else [])
             if best is None or len(missing) < len(best_missing):
                 best, best_missing = part, missing
