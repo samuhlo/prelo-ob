@@ -158,3 +158,39 @@ Este procedimiento corresponde al instalador público (`prelo`). Las instalacion
 Desde una versión anterior a 0.11, instala esta candidata con el paquete completo/BRAT o con copia manual del plugin y Obsidian cerrado: la versión antigua todavía no incorpora la nueva recuperación del autoactualizador. Actualiza también el conector USB antes de solicitar retiradas; las órdenes anteriores sin un lector identificado quedan pendientes de revisión, no se ejecutan por su cuenta.
 
 Los adjuntos admiten hasta 20 megapíxeles y 20.000 píxeles por lado, con 80 megapíxeles por edición, además del límite de bytes. La cuota de biblioteca controla EPUB e imágenes; catálogo/procedencia, copias privadas del instalador y archivos nativos del Mac tienen un alcance distinto. Conserva espacio libre para las copias y la recuperación.
+
+### Identidad del lector al actualizar a 1.0 beta
+
+El conector identifica el Kobo con un hash de su número de serie (primer campo de
+`.kobo/version`), sin incluir el firmware ni guardar el número de serie en claro.
+La separación de serie y firmware coincide con el [driver Kobo de Calibre](https://github.com/kovidgoyal/calibre/blob/master/src/calibre/devices/kobo/driver.py#L186).
+Un lector sin ese dato requiere revisar sus metadatos; la ruta de montaje no lo sustituye.
+Las órdenes pendientes o en ejecución con el hash antiguo de 20 caracteres pasan a
+fallidas, conservando su destino y contenido. Ese hash no permite demostrar qué serie
+lo originó. Conecta de nuevo el Kobo, revisa su inventario y solicita otra vez los cambios;
+puedes descartar el aviso antiguo en «Próxima conexión». Ninguna retirada se reasigna
+por coincidencia de ruta o de archivos. Actualiza servicio y conector juntos, sin una
+copia USB activa. Los nombres de ediciones y las claves de citas no cambian.
+
+### Recuperación de una actualización del plugin
+
+`.prelo-update/pending.json` se conserva hasta confirmar la activación. Que los tres
+archivos coincidan con la descarga solo confirma su escritura. Una reversión registra
+su fase antes de restaurar y restaura `main.js` al final para conservar el código de
+recuperación durante una interrupción. Si Obsidian no permite activar desde el plugin,
+reinícialo; el registro puede permanecer hasta la siguiente actualización explícita.
+
+El instalador manual comparte ese registro: recupera primero una sustitución parcial,
+registra su propio conjunto de archivos y retira la señal anterior solo al completar la
+instalación. Cierra Obsidian antes de usarlo. Una reversión incompleta conserva su señal
+para el siguiente arranque o reintento; no borres `.prelo-update` para forzar el proceso.
+
+Si falla la primera instalación, la recuperación detiene sus contenedores y conserva
+un marcador de reintento con el contexto y sus identificadores; no borra volúmenes.
+El siguiente intento verifica esos recursos y su directorio de Compose. Un proyecto
+ajeno o con bind mounts sigue rechazándose.
+
+Un estado USB `working` reciente sigue bloqueando la actualización. Si tiene más de
+60 segundos, el instalador exige además adquirir el bloqueo real del conector y lo
+mantiene durante toda la actualización y recuperación. Una copia larga sigue
+protegida aunque su heartbeat sea antiguo. Los ajustes UTF-8 con BOM se aceptan.

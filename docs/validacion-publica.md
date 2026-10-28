@@ -1,6 +1,6 @@
 # Aceptación de la candidata beta
 
-La candidata preparada es **0.11.0**. No se considera lista para anunciar únicamente porque sus pruebas automáticas pasen. El estado preciso está en [beta-acceptance.json](beta-acceptance.json).
+La candidata preparada es **1.0.0**. No se considera lista para anunciar únicamente porque sus pruebas automáticas pasen. El estado preciso está en [beta-acceptance.json](beta-acceptance.json).
 
 ## Comprobaciones automáticas
 
@@ -8,7 +8,7 @@ El CI ejecuta el plugin en macOS, Windows y Linux, pruebas de servicio e instala
 
 EPUBCheck se descarga de una versión y checksum fijados y se ejecuta en contenedores temporales sin montajes. Se validan muestras de estudio y retro con JPEG. MuPDF verifica pies completos y sin solapamientos en varios tamaños; no es un emulador de Kobo.
 
-Los tests de instalación inyectan fallos por etapa en fixtures. Los controles de IA comprueban contratos y literales; dos muestras reales de texto sintético en castellano y gallego comprobaron datos, negaciones e idioma. Esto no demuestra equivalencia semántica universal ni sustituye una revisión de contenido.
+Los tests de instalación inyectan fallos por etapa en fixtures. Los controles de IA de esta candidata usan proveedores simulados y comprueban contratos y literales. Las muestras reales de texto sintético en castellano y gallego de la candidata anterior no equivalen a una nueva aceptación de 1.0.0. Esto no demuestra equivalencia semántica universal ni sustituye una revisión de contenido.
 
 ## Comprobaciones manuales requeridas
 

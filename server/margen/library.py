@@ -1,6 +1,7 @@
 """Shared catalogue, source identities, delivery receipts and bounded binary storage."""
 import hashlib
 import json
+import re
 import shutil
 import sqlite3
 import threading
@@ -57,9 +58,17 @@ def database(root):
         db.execute("""CREATE TABLE IF NOT EXISTS kobo_command_targets (
             id TEXT PRIMARY KEY, device TEXT NOT NULL, claim_token TEXT
         )""")
-        db.execute("""UPDATE kobo_commands SET state='failed', message=?
+        db.execute("""UPDATE kobo_commands SET state='failed', message=?, done_at=?
             WHERE state='pending' AND id NOT IN (SELECT id FROM kobo_command_targets)""",
-            ("Orden anterior sin lector identificado. Vuelve a solicitarla tras conectar el Kobo.",))
+            ("Orden anterior sin lector identificado. Vuelve a solicitarla tras conectar el Kobo.", now()))
+        # The old hash included firmware (or a mount path). It cannot prove a serial.
+        # Retain the original target and payload; require a fresh explicit request.
+        legacy = [r[0] for r in db.execute("SELECT id,device FROM kobo_command_targets")
+                  if re.fullmatch(r"[a-f0-9]{20}", r[1])]
+        db.executemany("""UPDATE kobo_commands SET state='failed',message=?,done_at=?
+            WHERE id=? AND state IN ('pending','executing')""",
+            [("Identidad antigua del lector no verificable. Vuelve a solicitar el cambio tras conectar el Kobo.", now(), identity)
+             for identity in legacy])
         db.commit()
         try:
             yield db
@@ -292,10 +301,10 @@ def on_kobo(record, books, seen):
     """Where a delivered edition really is, judged from the last inventory of the reader."""
     if seen is None or record["delivery"] != "sent":
         return None
-    if record["id"] in books:
-        return "imported" if books[record["id"]].get("present", False) else "missing"
     if record["delivered_at"] and record["delivered_at"] > seen["at"]:
         return "copied"
+    if record["id"] in books:
+        return "imported" if books[record["id"]].get("present", False) else "missing"
     return "not_imported" if record["id"] in seen.get("unimported", []) else "missing"
 
 

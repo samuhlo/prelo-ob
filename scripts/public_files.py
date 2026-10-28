@@ -53,7 +53,10 @@ plugin/tests/selection.test.ts
 plugin/tests/session.test.ts
 plugin/tests/updates.test.ts
 plugin/tests/installation.test.ts
+plugin/tests/activation.test.ts
+plugin/tests/highlight-recovery.test.ts
 plugin/tests/connection.test.ts
+plugin/tests/api-recovery.test.ts
 plugin/tests/validation.test.ts
 plugin/tsconfig.json
 scripts/audit_public.py
@@ -96,10 +99,14 @@ server/margen/prompts.py
 server/pyproject.toml
 server/requirements.lock
 server/tests/test_command_safety.py
+server/tests/test_reader_identity.py
 server/tests/test_editorial_integrity.py
+server/tests/test_editorial_boundaries.py
 server/tests/test_editorial_modes.py
 server/tests/test_import_integrity.py
+server/tests/test_import_boundaries.py
 server/tests/test_job_control.py
+server/tests/test_slot_cancellation.py
 server/tests/test_library_usb.py
 server/tests/test_pipeline.py
 server/tests/test_image_boundaries.py

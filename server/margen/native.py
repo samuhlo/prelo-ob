@@ -24,6 +24,18 @@ def digest(value):
     return hashlib.sha256(value.encode() if isinstance(value, str) else value).hexdigest()
 
 
+def reader_identity(mount):
+    # Kobo's first comma-separated version field is its serial; firmware is mutable.
+    # Missing metadata is not evidence that two mounts are the same reader.
+    try:
+        serial = (mount / ".kobo/version").read_text(encoding="utf-8-sig").split(",")[0].strip()
+    except (OSError, UnicodeError):
+        serial = ""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", serial):
+        raise ValueError("No se puede identificar este Kobo. Revisa .kobo/version antes de solicitar cambios.")
+    return "serial-" + digest(serial)[:20]
+
+
 def stamp():
     return datetime.now(timezone.utc).isoformat()
 
@@ -43,6 +55,20 @@ def properties(text):
         return {}
     value = yaml.safe_load(match.group(1))
     return value if isinstance(value, dict) else {}
+
+
+def frontmatter_prefix(path):
+    # Read through the closing delimiter, never scan examples in the body.
+    with path.open() as stream:
+        first = stream.readline()
+        if first.lstrip("\ufeff").rstrip("\r\n") != "---":
+            return ""
+        lines = [first]
+        for line in stream:
+            lines.append(line)
+            if line.rstrip("\r\n") == "---":
+                return "".join(lines)
+    return ""
 
 
 def relative(root, value):
@@ -150,7 +176,7 @@ def read_books(mount):
                       "title": string(row.get("Title"))[:300], "author": string(row.get("Attribution"))[:300],
                       "percent": percent, "last_read": string(row.get("DateLastRead"))[:40],
                       "status": string(row.get("ReadStatus"))[:10],
-                      "present": bool(path) and ".." not in path.split("/") and (mount / path).is_file(),
+                      "present": (".." not in path.split("/") and (mount / path).is_file()) if path else None,
                       "sha256": book_checksum(mount, path) if path and ".." not in path.split("/") else ""})
     waiting = sorted(m[1] for f in mount.glob("margen-*.epub") if (m := EDITION_FILE.fullmatch(f.name)) and m[1] not in imported)
     return {"books": books, "unimported": waiting}
@@ -189,7 +215,7 @@ def highlight_block(highlight, source):
 def append_notes(vault, folder, highlights):
     directory = relative(vault, folder)
     directory.mkdir(parents=True, exist_ok=True)
-    by_group, source_paths = {}, {}
+    by_group, source_paths, key_groups = {}, {}, {}
     issues, blocked_keys, blocked_groups = [], set(), set()
     for path in directory.glob("*.md"):
         if "sync-conflict" in path.name or path.is_symlink():
@@ -206,26 +232,35 @@ def append_notes(vault, folder, highlights):
             # Use it only to defer that group, never to assign provenance or rewrite the note.
             header = re.match(r"\A\ufeff?---\r?\n(.*?)\r?\n---(?:\r?\n|$)", text, re.S)
             if header:
-                group = re.search(r"^margen_lectura: *[\"']?([a-zA-Z0-9_-]{1,80})[\"']? *$", header[1], re.M)
-                if group:
-                    blocked_groups.add(group[1])
+                for line in header[1].splitlines():
+                    if not line.startswith("margen_lectura:"):
+                        continue
+                    try:
+                        group = yaml.safe_load(line).get("margen_lectura")
+                        if isinstance(group, str):
+                            blocked_groups.add(group)
+                    except (yaml.YAMLError, ValueError):
+                        pass
             continue
         if identity:
             if identity in by_group:
                 blocked_groups.add(identity)
                 issues.append({"kind": "duplicate_identity", "path": path.relative_to(vault).as_posix()})
             by_group[identity] = path
+            for key in re.findall(r"<!-- margen:([a-f0-9]{64}):", text):
+                if key in key_groups and key_groups[key] != identity:
+                    blocked_keys.add(key)
+                key_groups[key] = identity
     needed = {h["source"]["id"] for h in highlights if h.get("source")}
     duplicates = set()
     for path in vault.rglob("*.md"):
         if any(part.startswith(".") for part in path.relative_to(vault).parts) or path.is_symlink():
             continue
         # Only read the YAML prefix when locating identities.
-        with path.open() as stream:
-            prefix = stream.read(16_384)
+        prefix = frontmatter_prefix(path)
         try:
             identity = properties(prefix).get("margen_id")
-        except yaml.YAMLError:
+        except (yaml.YAMLError, ValueError):
             continue
         if isinstance(identity, str) and identity in needed:
             if identity in source_paths:
@@ -237,7 +272,10 @@ def append_notes(vault, folder, highlights):
     for h in highlights:
         if h["key"] in blocked_keys:
             continue
-        group = h["source"]["id"] if h.get("source") else digest(h["volume_id"])[:20]
+        requested_group = h["source"]["id"] if h.get("source") else digest(h["volume_id"])[:20]
+        if requested_group in blocked_groups:
+            continue
+        group = key_groups.get(h["key"]) or requested_group
         if group not in blocked_groups:
             groups.setdefault(group, []).append(h)
     added, unresolved = 0, 0
@@ -245,15 +283,16 @@ def append_notes(vault, folder, highlights):
         first = items[0]
         title = (first.get("source") or {}).get("title") or first.get("publication_title") or first["title"] or "Lectura"
         source = None
-        if first.get("source") and group not in duplicates:
-            source = source_paths.get(group)
+        source_id = first["source"]["id"] if first.get("source") else None
+        if source_id and source_id not in duplicates:
+            source = source_paths.get(source_id)
             candidate = relative(vault, first["source"]["path"])
             if not source and candidate.is_file():
                 try:
                     identity = properties(candidate.read_text()).get("margen_id")
-                except yaml.YAMLError:
+                except (yaml.YAMLError, ValueError):
                     identity = "invalid"
-                if identity is None or identity == group:
+                if identity is None or identity == source_id:
                     source = first["source"]["path"]
         unresolved += sum(bool(h.get("source") and not source or h["match"] == "unresolved") for h in items)
         target = by_group.get(group)
@@ -331,8 +370,7 @@ class Worker:
     def synchronize(self, mount):
         with (self.state / "usb.lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            version = mount / ".kobo/version"
-            device = digest(version.read_bytes() if version.is_file() else str(mount))[:20]
+            device = reader_identity(mount)
             self.report("working", "Recogiendo subrayados del Kobo.", device)
             # Taken before copying: it shows what the reader imported after the previous connection.
             self.api("/v1/device/inventory", {"device": device, **read_books(mount)})
@@ -452,7 +490,7 @@ class Worker:
                 else:
                     mount = mounts[0]
                     state = self.api("/v1/device")
-                    pending = self.api("/v1/deliveries") or self.api("/v1/kobo/commands?device=" + quote(digest((mount / ".kobo/version").read_bytes() if (mount / ".kobo/version").is_file() else str(mount))[:20]))
+                    pending = self.api("/v1/deliveries") or self.api("/v1/kobo/commands?device=" + quote(reader_identity(mount)))
                     if seen != str(mount) or state["request"] != request_id or pending:
                         self.synchronize(mount)
                         seen = str(mount)
