@@ -54,6 +54,7 @@ plugin/tests/session.test.ts
 plugin/tests/updates.test.ts
 plugin/tests/installation.test.ts
 plugin/tests/activation.test.ts
+plugin/tests/highlight-recovery.test.ts
 plugin/tests/connection.test.ts
 plugin/tests/api-recovery.test.ts
 plugin/tests/validation.test.ts

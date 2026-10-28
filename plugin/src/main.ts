@@ -726,7 +726,8 @@ export default class Prelo extends Plugin {
         if (h.match === "unresolved" || (h.source && !sourcePath)) unresolved++;
         const groupId = h.source ? h.source.id : hash(h.volume_id).slice(0, 20);
         const title = h.source?.title || h.publication_title || h.title || "Lectura";
-        let file = this.importNoteFor(groupId);
+        const existingQuote = await this.highlightNote(h.key);
+        let file = existingQuote || this.importNoteFor(groupId);
         if (!file) {
           const target = this.availableHighlightPath(title);
           const properties = this.state.settings.frontmatter.trim();
@@ -736,7 +737,7 @@ export default class Prelo extends Plugin {
           try { file = await this.app.vault.create(target, header); }
           catch (e) { throw new Error(`No se pudo crear ${target}. Repite la importación cuando termine la sincronización.`); }
         }
-        this.state.importNotes[groupId] = file.path;
+        if (!existingQuote) this.state.importNotes[groupId] = file.path;
         await this.app.vault.process(file, current => {
           const next = appendHighlight(current, h, sourcePath);
           if (next !== current) imported++;
