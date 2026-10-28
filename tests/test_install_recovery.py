@@ -13,6 +13,10 @@ import install_usb
 
 @pytest.fixture
 def setup(tmp_path, monkeypatch):
+    # Native flock is exercised separately on POSIX; desktop fixture runs on Windows too.
+    if sys.platform == 'win32':
+        from contextlib import nullcontext
+        monkeypatch.setattr(installer, 'usb_update_guard', lambda runtime: nullcontext())
     home=tmp_path/'home';home.mkdir()
     monkeypatch.setattr(Path,'home',classmethod(lambda cls:home))
     monkeypatch.setattr(install_usb.sys,'platform','darwin')
@@ -118,3 +122,113 @@ def test_recovery_never_starts_an_old_bind_mount(setup,monkeypatch):
     with pytest.raises(ValueError,match='bind mounts'):transaction.recover(runtime)
     assert (runtime/'update-in-progress.json').exists()
     assert not any('up' in args for args in calls)
+
+
+def test_failed_first_install_can_be_retried(tmp_path, monkeypatch):
+    home = tmp_path / 'home'
+    home.mkdir()
+    monkeypatch.setattr(Path, 'home', classmethod(lambda cls: home))
+    monkeypatch.setattr(transaction.os, 'getuid', lambda: 501, raising=False)
+    monkeypatch.setattr(installer.sys, 'platform', 'darwin')
+    monkeypatch.setattr(installer.shutil, 'which', lambda name: '/bin/' + name)
+    monkeypatch.setattr(installer, 'occupied', lambda port: False)
+    root = tmp_path / 'release'
+    plugin = root / 'dist/margen'
+    plugin.mkdir(parents=True)
+    for name in installer.PLUGIN_FILES:
+        (plugin / name).write_text('synthetic')
+    vault = tmp_path / 'vault'
+    (vault / '.obsidian').mkdir(parents=True)
+    runtime = tmp_path / 'runtime'
+    docker = {'exists': False, 'running': False}
+
+    def run(args, **kwargs):
+        args = list(map(str, args))
+        output = ''
+        if args[:3] == ['docker', 'context', 'show']:
+            output = 'fixture'
+        elif 'ps' in args:
+            present = docker['exists'] if '-aq' in args else docker['running']
+            output = docker.get('id', 'failed-container') if present else ''
+        elif 'inspect' in args:
+            output = json.dumps([{'Mounts': [], 'Config': {'Labels': {'com.docker.compose.project.working_dir': str((runtime/'app').resolve())}}}])
+        elif 'stop' in args:
+            docker['running'] = False
+        elif 'rm' in args or 'down' in args:
+            docker.update(exists=False, running=False)
+        return SimpleNamespace(stdout=output, returncode=0)
+
+    monkeypatch.setattr(installer, 'run', run)
+    monkeypatch.setattr(transaction, 'run', run)
+    transaction.capture(runtime, vault, 'fixture', '')
+    (runtime / 'app').mkdir()
+    (runtime / 'installation.json').write_text(json.dumps({'docker_context': 'fixture', 'state': 'installing'}))
+    (runtime / 'service.env').write_text('MARGEN_TOKEN=' + 'x' * 32)
+    docker.update(exists=True, running=True)
+    assert installer.preflight(runtime, 'none', root) == 'fixture'
+    transaction.recover(runtime)
+    error = None
+    try:
+        installer.preflight(runtime, 'none', root)
+    except ValueError as exc:
+        error = str(exc)
+    assert error is None, f'La recuperación impide reintentar la instalación: {error}'
+    marker = json.loads((runtime/'installation.json').read_text())
+    assert marker['state'] == 'retry' and marker['retry_containers'] == ['failed-container']
+    assert not docker['running'] and docker['exists']
+    docker['id'] = 'foreign-container'
+    with pytest.raises(ValueError, match='ajenos'):
+        installer.preflight(runtime, 'none', root)
+
+
+def test_update_accepts_existing_utf8_bom_plugin_settings(setup):
+    root, vault, runtime, calls, failure = setup
+    state = vault / '.obsidian/plugins/margen/data.json'
+    state.write_bytes(b'\xef\xbb\xbf' + state.read_bytes())
+    installer.install_service(vault, root=root, runtime=runtime, ai='none')
+
+
+@pytest.mark.parametrize('heartbeat,allowed', [('2000-01-01T00:00:00+00:00', True), ('recent', False), ('invalid', False)])
+def test_usb_heartbeat_distinguishes_stale_and_live_work(setup, monkeypatch, heartbeat, allowed):
+    from datetime import datetime, timezone
+    root, vault, runtime, calls, _ = setup
+    if heartbeat == 'recent':
+        heartbeat = datetime.now(timezone.utc).isoformat()
+    monkeypatch.setattr(installer, 'request', lambda *args: {'jobs': [], 'device': {'state': 'working', 'heartbeat_at': heartbeat}})
+    if allowed:
+        installer.install_service(vault, root=root, runtime=runtime, ai='none')
+        assert any('up' in args for args in calls)
+    else:
+        with pytest.raises(ValueError, match='Espera'):
+            installer.install_service(vault, root=root, runtime=runtime, ai='none')
+        assert not calls
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='macOS connector uses POSIX flock')
+def test_stale_heartbeat_with_held_usb_lock_still_blocks_update(setup, monkeypatch):
+    import fcntl
+    root, vault, runtime, calls, _ = setup
+    state = runtime/'custom-state'
+    state.mkdir()
+    config = json.loads((runtime/'usb.json').read_text())
+    (runtime/'usb.json').write_text(json.dumps({**config, 'state': str(state)}))
+    monkeypatch.setattr(installer, 'request', lambda *args: {'jobs': [], 'device': {'state': 'working', 'heartbeat_at': '2000-01-01T00:00:00+00:00'}})
+    with (state/'usb.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(ValueError, match='copia USB'):
+            installer.install_service(vault, root=root, runtime=runtime, ai='none')
+    assert not calls and not (runtime/'update-in-progress.json').exists()
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='macOS connector uses POSIX flock')
+def test_update_holds_usb_lock_until_installation_finishes(setup, monkeypatch):
+    import fcntl
+    root, vault, runtime, _, _ = setup
+    def install(*args, **kwargs):
+        with (runtime/'usb-state/usb.lock').open('a') as lock:
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    monkeypatch.setattr(installer, '_install_service', install)
+    installer.install_service(vault, root=root, runtime=runtime, ai='none')
+    with installer.usb_update_guard(runtime):
+        pass

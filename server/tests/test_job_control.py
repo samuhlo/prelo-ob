@@ -13,7 +13,7 @@ def test_images_do_not_start_after_cancellation(tmp_path, monkeypatch):
         dict(id=f'inside{i}',placement='inside',source_ids=[n['id']],concept='Topic',description='Scene',caption='') for i,n in enumerate(notes)]
     plan=EditorialPlan(title='Test',subtitle='',chapters=[dict(title='Topic',source_ids=[n['id'] for n in notes])],visuals=visuals)
     cancelled=threading.Event(); after=[]
-    def generate(job):
+    def generate(job, cancelled_check=lambda: False):
         after.append(cancelled.is_set())
         if job.visual.id=='cover': assert cancelled.wait(2)
         return {'data':base64.b64encode(b'\xff\xd8\xffsynthetic').decode(),'media_type':'image/jpeg'}
@@ -49,3 +49,57 @@ def test_text_provider_rejects_artwork_before_any_paid_call(monkeypatch):
     monkeypatch.setattr(editor,'make_outline',lambda *_:pytest.fail('Must not invoke planning'))
     request=PublicationRequest(style='retro90',artwork='generated',notes=[dict(id='a',path='a.md',title='A',markdown='Test')])
     with pytest.raises(ValueError,match='solo genera texto'):editor.plan_publication(request)
+
+
+import pytest
+from margen import jobs
+from margen.models import PublicationRequest
+
+
+def test_failed_persistence_does_not_permanently_fill_admission(tmp_path, monkeypatch):
+    subject = jobs
+    monkeypatch.setenv("MARGEN_MAX_JOBS", "1")
+    monkeypatch.setattr(subject, "ACTIVE", set())
+    monkeypatch.setattr(subject, "CANCELLED", set())
+
+    class PendingExecutor:
+        def submit(self, fn):
+            return None
+
+    monkeypatch.setattr(subject, "POOL", PendingExecutor())
+    request = PublicationRequest(notes=[dict(id="a", path="a.md", title="A", markdown="A")])
+    original_write = subject.write
+
+    def disk_full(*args):
+        raise OSError("Synthetic disk full")
+
+    monkeypatch.setattr(subject, "write", disk_full)
+    with pytest.raises(OSError, match="Synthetic disk full"):
+        subject.submit(tmp_path, "00000000-0000-4000-8000-000000000001", request, lambda *args: None)
+    monkeypatch.setattr(subject, "write", original_write)
+    try:
+        result = subject.submit(tmp_path, "00000000-0000-4000-8000-000000000002", request, lambda *args: None)
+    except ValueError as error:
+        pytest.fail(f"A job that was never persisted permanently occupies admission: {error}")
+    assert result["state"] == "queued"
+
+
+def test_rejected_executor_releases_admission_even_if_failure_cannot_be_saved(tmp_path, monkeypatch):
+    class RejectedExecutor:
+        def submit(self, fn):
+            raise RuntimeError('Synthetic executor stopped')
+    monkeypatch.setattr(jobs, 'POOL', RejectedExecutor())
+    monkeypatch.setattr(jobs, 'ACTIVE', set())
+    monkeypatch.setattr(jobs, 'CANCELLED', set())
+    request = PublicationRequest(notes=[dict(id='a', path='a.md', title='A', markdown='A')])
+    identity = str(uuid.uuid4())
+    with pytest.raises(RuntimeError, match='executor stopped'):
+        jobs.submit(tmp_path, identity, request, lambda *args: pytest.fail('Must not run'))
+    assert not jobs.ACTIVE
+    assert not jobs.CANCELLED
+    assert jobs.read(tmp_path, identity)['state'] == 'failed'
+
+
+def test_new_receipt_supersedes_absence_in_an_older_inventory():
+    record = {'id': 'a', 'delivery': 'sent', 'delivered_at': '2026-03-01'}
+    assert library.on_kobo(record, {'a': {'present': False}}, {'at': '2026-02-01'}) == 'copied'

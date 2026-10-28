@@ -66,3 +66,8 @@ La maquetación se verifica con EPUBCheck y con `check_caption_layout.py` a vari
 El instalador registra una transacción privada antes de cambiar archivos. La copia incluye el entorno Python nativo y los agentes, además de aplicación/plugin/configuración; si hay servicio disponible, exporta una biblioteca comprobada antes de empezar. Un fallo restaura esos archivos y arranca la imagen Docker anterior por su identificador, sin reconstruirla ni borrar volúmenes. Un proceso interrumpido requiere `--recover` explícito. Se exige cerrar Obsidian en todos los equipos y no tener trabajos ni USB en curso; no se promete una actualización concurrente con ediciones o cambios de configuración de otros clientes.
 
 Las pruebas de instalación usan vaults/directorios temporales y sustitutos de Docker/launchd: inyectan fallos en entorno nativo, arranque de contenedor, paquete, USB y plugin, además de cubrir éxito, interrupción y rechazo de bind mounts antiguos. No equivalen a una instalación limpia real en otro Mac, que sigue siendo parte de la aceptación manual.
+
+
+## Preparar la aceptación de una versión
+
+`python scripts/smoke_service.py --build --image prelo-ci --output data/validation` comprueba el servicio en volúmenes temporales y deja EPUB sintéticos. `python scripts/check_beta.py --digest` muestra la huella de las fuentes de producto. Tras completar las comprobaciones requeridas, registra su fecha y un resumen sanitizado en `docs/beta-acceptance.json`, junto a esa huella. `python scripts/check_beta.py` debe pasar antes de crear el tag. Los estados pendientes son deliberados: no cambiarlos para saltarse una prueba manual. El CI normal puede pasar aunque todavía no se haya autorizado publicar la candidata.

@@ -8,6 +8,7 @@ import socket
 import sys
 import urllib.error
 import urllib.request
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from install_common import read_env, run, validate_connection, validate_vault, write_private
@@ -63,6 +64,9 @@ def preflight(runtime, ai, root=ROOT):
     if ai == "codex":
         if not shutil.which("codex"):
             raise ValueError("Instala Codex CLI y ejecuta codex login, o elige continuar sin IA.")
+        help_text = run(["codex", "exec", "--help"], timeout=15).stdout
+        if any(flag not in help_text for flag in ["--ignore-user-config", "--ignore-rules", "--ephemeral", "--output-schema"]):
+            raise ValueError("Actualiza Codex CLI: faltan opciones necesarias para esta versión de Prelo.")
         login = run(["codex", "login", "status"], timeout=15, check=False)
         if login.returncode or "using ChatGPT" not in login.stdout + login.stderr:
             raise ValueError("Inicia sesión con codex login usando tu propia cuenta de ChatGPT.")
@@ -81,6 +85,13 @@ def preflight(runtime, ai, root=ROOT):
         if not marker.exists():
             raise ValueError("Ya existe un proyecto Docker llamado prelo; no se sustituye automáticamente.")
         containers = json.loads(run([*docker, "inspect", *ids], timeout=15).stdout)
+        retry_ids = previous.get("retry_containers")
+        if retry_ids is not None and not set(ids).issubset(retry_ids):
+            raise ValueError("Hay contenedores ajenos al reintento registrado; no se modifican.")
+        for container in containers:
+            labels = container.get("Config", {}).get("Labels", {})
+            if labels.get("com.docker.compose.project.working_dir") != str((runtime / "app").resolve()):
+                raise ValueError("El contenedor no pertenece a esta instalación; no se modifica.")
         if any(m.get("Type") == "bind" for c in containers for m in c.get("Mounts", [])):
             raise ValueError("La instalación contiene montajes del equipo. No se iniciarán esos contenedores.")
     return context
@@ -151,8 +162,8 @@ def _install_service(vault, *, ai=None, root=ROOT, runtime=None, check=False):
     print("4/5 · Configurando la sincronización USB…", flush=True)
     install_usb(runtime, env_file, vault=vault, label="local.prelo.kobo")
     plugin_state = vault / ".obsidian/plugins/margen/data.json"
-    settings = json.loads(plugin_state.read_text()).get("settings", {}) if plugin_state.exists() else {}
-    usb_settings = json.loads((runtime / "usb.json").read_text())
+    settings = json.loads(plugin_state.read_text(encoding="utf-8-sig")).get("settings", {}) if plugin_state.exists() else {}
+    usb_settings = json.loads((runtime / "usb.json").read_text(encoding="utf-8-sig"))
     connection = {"serverUrl": "http://127.0.0.1:8765", "token": env["MARGEN_TOKEN"],
                   "outputFolder": settings.get("outputFolder", "Prelo/Publicaciones"),
                   "highlightsFolder": usb_settings["highlights_folder"]}
@@ -180,6 +191,36 @@ def backup_library(destination, token):
             raise ValueError("El backup previo no es íntegro. La actualización no ha comenzado.")
 
 
+def usb_working(device):
+    if device.get("state") != "working":
+        return False
+    try:
+        age = (datetime.now(timezone.utc) - datetime.fromisoformat(device["heartbeat_at"])).total_seconds()
+        return age < 60
+    except (KeyError, ValueError, TypeError):
+        return True
+
+
+@contextmanager
+def usb_update_guard(runtime):
+    # A stale heartbeat alone cannot prove an interrupted copy. Hold the same lock
+    # as Worker.synchronize through shutdown/update/recovery to close the race.
+    import fcntl
+    config = runtime / "usb.json"
+    value = json.loads(config.read_text(encoding="utf-8-sig")) if config.exists() else {}
+    state = Path(value.get("state", runtime / "usb-state"))
+    state.mkdir(parents=True, exist_ok=True)
+    with (state / "usb.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError("Espera a que termine la copia USB antes de actualizar.") from None
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
 def install_service(vault, *, ai=None, root=ROOT, runtime=None, check=False):
     if check:
         return _install_service(vault, ai=ai, root=root, runtime=runtime, check=True)
@@ -194,29 +235,32 @@ def install_service(vault, *, ai=None, root=ROOT, runtime=None, check=False):
     online = occupied(8765)
     if online:
         state = request("http://127.0.0.1:8765", "/v1/library", env["MARGEN_TOKEN"])
-        if any(j.get("state") in {"running", "queued"} for j in state.get("jobs", [])) or state.get("device", {}).get("state") == "working":
+        if any(j.get("state") in {"running", "queued"} for j in state.get("jobs", [])) or usb_working(state.get("device", {})):
             raise ValueError("Espera a que terminen la generación y el USB antes de actualizar. Cierra Obsidian en todos los equipos.")
-    docker = ["docker", "--context", context]
-    ids = run([*docker, "ps", "-aq", "--filter", "label=com.docker.compose.project=prelo",
-               "--filter", "label=com.docker.compose.service=margen"], timeout=15).stdout.split()
-    image = run([*docker, "inspect", "--format", "{{.Image}}", ids[0]], timeout=15).stdout.strip() if ids else ""
-    backup = install_transaction.capture(runtime, vault, context, image)
-    try:
-        if online:
-            backup_library(backup / "library.zip", env["MARGEN_TOKEN"])
-    except BaseException:
-        journal.unlink()  # No mutation has started; keep the snapshot for inspection.
-        raise
-    try:
-        install_transaction.stop_agents()
-        _install_service(vault, ai=selected_ai, root=root, runtime=runtime)
-    except BaseException:
+    with usb_update_guard(runtime):
+        docker = ["docker", "--context", context]
+        ids = run([*docker, "ps", "-aq", "--filter", "label=com.docker.compose.project=prelo",
+                   "--filter", "label=com.docker.compose.service=margen"], timeout=15).stdout.split()
+        marker = runtime / "installation.json"
+        retry = marker.exists() and json.loads(marker.read_text(encoding="utf-8-sig")).get("state") == "retry"
+        image = run([*docker, "inspect", "--format", "{{.Image}}", ids[0]], timeout=15).stdout.strip() if ids and not retry else ""
+        backup = install_transaction.capture(runtime, vault, context, image)
         try:
-            install_transaction.recover(runtime)
-        except Exception as error:
-            raise RuntimeError("La actualización falló y la recuperación necesita revisión. Conserva el backup privado y ejecuta --recover.") from error
-        raise
-    journal.unlink()
+            if online:
+                backup_library(backup / "library.zip", env["MARGEN_TOKEN"])
+        except BaseException:
+            journal.unlink()  # No mutation has started; keep the snapshot for inspection.
+            raise
+        try:
+            install_transaction.stop_agents()
+            _install_service(vault, ai=selected_ai, root=root, runtime=runtime)
+        except BaseException:
+            try:
+                install_transaction.recover(runtime)
+            except Exception as error:
+                raise RuntimeError("La actualización falló y la recuperación necesita revisión. Conserva el backup privado y ejecuta --recover.") from error
+            raise
+        journal.unlink()
 
 
 def main():
