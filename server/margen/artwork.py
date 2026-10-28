@@ -69,13 +69,15 @@ def image_prompt(request: ArtworkRequest):
     )
 
 
-def codex_artwork(request: ArtworkRequest):
+def codex_artwork(request: ArtworkRequest, cancelled=lambda: False):
     executable = os.getenv("CODEX_BIN") or shutil.which("codex")
     if not executable:
         raise ValueError("No se encuentra Codex para generar las ilustraciones.")
     if not SLOTS.acquire(timeout=480):
         raise ValueError("Codex está preparando otra edición. Espera a que termine.")
     try:
+        if cancelled():
+            raise Cancelled()
         env = dict(os.environ)
         for key in ["OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"]:
             env.pop(key, None)
@@ -179,7 +181,7 @@ def generate_visuals(request: PublicationRequest, plan: EditorialPlan, cache_dir
         if reused:
             encoded = {"data": base64.b64encode(cached.read_bytes()).decode(), "media_type": "image/jpeg"}
         elif provider == "codex-cli":
-            encoded = codex_artwork(job)
+            encoded = codex_artwork(job, cancelled)
         else:
             try:
                 with httpx.Client(timeout=510, follow_redirects=False) as client:

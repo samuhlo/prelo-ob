@@ -220,7 +220,7 @@ def test_content_specific_artwork_and_cache(client, tmp_path, monkeypatch):
     import margen.artwork as art
     request, plan, data = retro_fixture()
     calls, running, peak = [], [0], [0]
-    def fake(job):
+    def fake(job, cancelled=lambda: False):
         calls.append(job)
         running[0] += 1
         peak[0] = max(peak[0], running[0])

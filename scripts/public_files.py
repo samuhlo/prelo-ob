@@ -102,6 +102,7 @@ server/tests/test_editorial_modes.py
 server/tests/test_import_integrity.py
 server/tests/test_import_boundaries.py
 server/tests/test_job_control.py
+server/tests/test_slot_cancellation.py
 server/tests/test_library_usb.py
 server/tests/test_pipeline.py
 server/tests/test_image_boundaries.py
