@@ -127,7 +127,9 @@ def upload(root, filename, data, device=""):
         state = storage(root)
         if state["used_bytes"] + size > state["limit_bytes"]:
             raise ValueError("La subida no cabe en la cuota. Libera espacio o amplía el límite.")
-        if state["free_disk_bytes"] < size + 128_000_000:
+        # A same-filesystem rename consumes no second copy of the staged EPUB.
+        additional = 0 if isinstance(data, Path) and data.stat().st_dev == folder.stat().st_dev else size
+        if state["free_disk_bytes"] < additional + 128_000_000:
             raise ValueError("Falta espacio para guardar la subida.")
         try:
             with database(root) as db:
