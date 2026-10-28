@@ -55,6 +55,21 @@ def recover(runtime):
     # Read/validate the whole snapshot before touching the current installation.
     if any(not (backup / name).exists() for name in value['existing']):
         raise ValueError('La copia de recuperación está incompleta; se conserva el estado actual.')
+    docker = ['docker', '--context', value['context']]
+    if not value['image']:
+        ids = run([*docker, 'ps', '-aq', '--filter', 'label=com.docker.compose.project=prelo'], timeout=15).stdout.split()
+        if ids:
+            containers = json.loads(run([*docker, 'inspect', *ids], timeout=15).stdout)
+            for container in containers:
+                labels = container.get('Config', {}).get('Labels', {})
+                if labels.get('com.docker.compose.project.working_dir') != str(runtime / 'app') or any(
+                        m.get('Type') == 'bind' for m in container.get('Mounts', [])):
+                    raise ValueError('Hay contenedores ajenos o con bind mounts; no se detendrán.')
+        known = value.get('retry_containers')
+        if known is not None and not set(ids).issubset(known):
+            raise ValueError('Hay contenedores ajenos al reintento registrado; no se detendrán.')
+        value['retry_containers'] = ids
+        write_private(journal, json.dumps(value))
     stop_agents()
     for name, target in paths.items():
         if target.is_symlink():
@@ -87,9 +102,11 @@ def recover(runtime):
             run([*docker, 'cp', str(runtime / 'app/dist/margen') + '/.', container + ':/data/.plugin-release/'], timeout=30)
     else:
         # Failed first installation: stop its own project, but never remove data volumes.
-        ids = run([*docker, 'ps', '-q', '--filter', 'label=com.docker.compose.project=prelo'], timeout=15).stdout.split()
+        ids = value['retry_containers']
         if ids:
             run([*docker, 'stop', *ids], timeout=30)
+        write_private(runtime / 'installation.json', json.dumps({
+            'docker_context': value['context'], 'state': 'retry', 'retry_containers': ids}))
     for label in LABELS:
         if label in value['existing']:
             load_agent(label, paths[label])

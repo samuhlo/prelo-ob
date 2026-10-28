@@ -183,3 +183,13 @@ El instalador manual comparte ese registro: recupera primero una sustitución pa
 registra su propio conjunto de archivos y retira la señal anterior solo al completar la
 instalación. Cierra Obsidian antes de usarlo. Una reversión incompleta conserva su señal
 para el siguiente arranque o reintento; no borres `.prelo-update` para forzar el proceso.
+
+Si falla la primera instalación, la recuperación detiene sus contenedores y conserva
+un marcador de reintento con el contexto y sus identificadores; no borra volúmenes.
+El siguiente intento verifica esos recursos y su directorio de Compose. Un proyecto
+ajeno o con bind mounts sigue rechazándose.
+
+Un estado USB `working` reciente sigue bloqueando la actualización. Si tiene más de
+60 segundos, el instalador exige además adquirir el bloqueo real del conector y lo
+mantiene durante toda la actualización y recuperación. Una copia larga sigue
+protegida aunque su heartbeat sea antiguo. Los ajustes UTF-8 con BOM se aceptan.
