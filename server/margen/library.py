@@ -1,6 +1,7 @@
 """Shared catalogue, source identities, delivery receipts and bounded binary storage."""
 import hashlib
 import json
+import re
 import shutil
 import sqlite3
 import threading
@@ -57,9 +58,17 @@ def database(root):
         db.execute("""CREATE TABLE IF NOT EXISTS kobo_command_targets (
             id TEXT PRIMARY KEY, device TEXT NOT NULL, claim_token TEXT
         )""")
-        db.execute("""UPDATE kobo_commands SET state='failed', message=?
+        db.execute("""UPDATE kobo_commands SET state='failed', message=?, done_at=?
             WHERE state='pending' AND id NOT IN (SELECT id FROM kobo_command_targets)""",
-            ("Orden anterior sin lector identificado. Vuelve a solicitarla tras conectar el Kobo.",))
+            ("Orden anterior sin lector identificado. Vuelve a solicitarla tras conectar el Kobo.", now()))
+        # The old hash included firmware (or a mount path). It cannot prove a serial.
+        # Retain the original target and payload; require a fresh explicit request.
+        legacy = [r[0] for r in db.execute("SELECT id,device FROM kobo_command_targets")
+                  if re.fullmatch(r"[a-f0-9]{20}", r[1])]
+        db.executemany("""UPDATE kobo_commands SET state='failed',message=?,done_at=?
+            WHERE id=? AND state IN ('pending','executing')""",
+            [("Identidad antigua del lector no verificable. Vuelve a solicitar el cambio tras conectar el Kobo.", now(), identity)
+             for identity in legacy])
         db.commit()
         try:
             yield db
@@ -71,14 +80,31 @@ def database(root):
             db.close()
 
 
-def records(root):
+def records(root, issues=None):
     with database(root) as db:
         result = []
         for path in Path(root).glob("*/manifest.json"):
             if path.parent.name.startswith("."):
                 continue
-            record = json.loads(path.read_text())
-            edition(record["id"])
+            try:
+                record = json.loads(path.read_text())
+                identity = edition(record["id"])
+                if identity != path.parent.name or record["filename"] != f"margen-{identity}.epub":
+                    raise ValueError()
+                datetime.fromisoformat(record["created_at"])
+                for field in ("title", "subtitle"):
+                    if not isinstance(record[field], str):
+                        raise ValueError()
+                if not isinstance(record["sources"], list):
+                    raise ValueError()
+                for source in record["sources"]:
+                    for field in ("id", "path", "title", "sha256", "href", "text"):
+                        if not isinstance(source[field], str):
+                            raise ValueError()
+            except (OSError, ValueError, KeyError, TypeError, AttributeError):
+                if issues is not None:
+                    issues.append({"edition": path.parent.name, "kind": "invalid_manifest"})
+                continue
             db.execute("INSERT OR IGNORE INTO editions(id) VALUES (?)", (record["id"],))
             state = dict(db.execute("SELECT * FROM editions WHERE id=?", (record["id"],)).fetchone())
             book = path.parent / record["filename"]
@@ -275,10 +301,10 @@ def on_kobo(record, books, seen):
     """Where a delivered edition really is, judged from the last inventory of the reader."""
     if seen is None or record["delivery"] != "sent":
         return None
-    if record["id"] in books:
-        return "imported" if books[record["id"]].get("present", False) else "missing"
     if record["delivered_at"] and record["delivered_at"] > seen["at"]:
         return "copied"
+    if record["id"] in books:
+        return "imported" if books[record["id"]].get("present", False) else "missing"
     return "not_imported" if record["id"] in seen.get("unimported", []) else "missing"
 
 
@@ -290,7 +316,8 @@ def request_sync(root):
 
 
 def dashboard(root):
-    catalogue = records(root)
+    issues = []
+    catalogue = records(root, issues)
     with database(root) as db:
         events = [dict(r) for r in db.execute("SELECT * FROM events ORDER BY id DESC LIMIT 30")]
     seen = inventory(root)
@@ -298,7 +325,7 @@ def dashboard(root):
     return {"publications": [{**{k: r.get(k) for k in
             ("id", "title", "subtitle", "created_at", "style", "writing_mode", "study_aids", "filename", "available", "bytes", "pinned", "delivery", "delivered_at", "archived_at")},
             "on_kobo": on_kobo(r, books, seen), "percent_read": books.get(r["id"], {}).get("percent")}
-            for r in catalogue], "storage": storage(root), "device": device_state(root),
+            for r in catalogue], "storage": storage(root), "device": device_state(root), "issues": issues,
             "kobo": {"at": seen["at"], "books": seen["books"]} if seen else None,
             "events": [{**r, "data": json.loads(r["data"])} for r in events]}
 
@@ -317,7 +344,10 @@ def backup(root):
     import os
     import zipfile
     with LOCK:
-        catalogue = records(root)
+        issues = []
+        catalogue = records(root, issues)
+        if issues:
+            raise ValueError("Hay fichas dañadas. Repara o recupera esas ediciones antes de sustituir el backup anterior.")
         with database(root) as db:
             uploads = [dict(r) for r in db.execute("SELECT id,sha256 FROM kobo_commands WHERE kind='upload' AND state IN ('pending','executing','failed')")]
         upload_files = []

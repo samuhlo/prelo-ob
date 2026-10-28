@@ -119,7 +119,7 @@ def test_invalid_ai_outline_cannot_lose_or_duplicate_notes():
 def test_ai_integration_with_provider_fixture(monkeypatch):
     monkeypatch.setenv("AI_BASE_URL", "http://local-model/v1")
     monkeypatch.setenv("AI_MODEL", "configured-model")
-    plan = {"title": "Otro", "subtitle": "Una lectura", "chapters": [{"title": "Docker", "source_ids": ["b", "a"]}]}
+    plan = {"title": "Otro", "subtitle": "Una lectura", "briefs": [{"source_id": i, "title": i, "summary": "", "connections": []} for i in ["a", "b"]], "chapters": [{"title": "Docker", "source_ids": ["b", "a"]}]}
     def post(self, url, **kwargs):
         assert url == "http://local-model/v1/chat/completions"
         assert kwargs["json"]["response_format"]["json_schema"]["strict"]
@@ -142,8 +142,9 @@ def test_ai_requested_without_configuration_is_explicit_failure(client, monkeypa
 
 def test_images_packaged_and_remote_images_reported(client):
     payload = copy.deepcopy(PAYLOAD)
-    payload["assets"] = [{"id": "pixel", "media_type": "image/png", "data":
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII="}]
+    from PIL import Image
+    pixel = io.BytesIO(); Image.new("RGB", (1, 1), "white").save(pixel, format="PNG")
+    payload["assets"] = [{"id": "pixel", "media_type": "image/png", "data": base64.b64encode(pixel.getvalue()).decode()}]
     payload["notes"][0]["markdown"] += "\n\n![Pixel](margen-asset:pixel)\n\n![Remote](https://example.com/pic.png)"
     record = publish(client, payload)
     assert any("imagen no incluida" in w for w in record["warnings"])
@@ -219,7 +220,7 @@ def test_content_specific_artwork_and_cache(client, tmp_path, monkeypatch):
     import margen.artwork as art
     request, plan, data = retro_fixture()
     calls, running, peak = [], [0], [0]
-    def fake(job):
+    def fake(job, cancelled=lambda: False):
         calls.append(job)
         running[0] += 1
         peak[0] = max(peak[0], running[0])

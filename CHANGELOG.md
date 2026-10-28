@@ -1,5 +1,30 @@
 # Cambios
 
+## 1.0.0 — Beta candidata, pendiente de aceptación
+
+- Drenaje de borradores y revisiones guardados durante un envío.
+- Identidad Kobo estable ante firmware; órdenes antiguas visibles para repetirlas sin reasignar retiradas.
+- Estados por lector, entregas recientes y libros sin ruta local sin falsos avisos de ausencia.
+- Recuperación de trabajos inexistentes sin confundirlos con errores de red; liberación de cupos y cancelación al obtener turno.
+- Subidas sin doble reserva de disco, manteniendo cuota y margen libre.
+- Aislamiento de YAML inválido, cabeceras largas y anclas nulas; citas sin duplicados al recuperar una ficha, tanto en el conector como en la importación manual.
+- Literales conservados sin falsos rechazos, signos numéricos e imágenes comprobadas con el contrato del renderizador. Los dos últimos eran limitaciones previas.
+- Registro de recuperación hasta confirmar activación; reversión con el archivo de entrada al final y coordinación con instalación manual.
+- Consultas API independientes de la carpeta de exportación; reintento seguro de primera instalación, ajustes con BOM y bloqueo real de copia USB.
+- Paquetes preparados localmente. Publicación bloqueada hasta repetir aceptación de instalación limpia, Obsidian, Kobo físico y recuperación para esta huella.
+
+## 0.11.0 — Candidata de estabilización
+
+- Conservación de varias revistas sin conexión y sincronización de borradores confirmada.
+- Órdenes USB vinculadas al dispositivo y al archivo, reclamación antes de ejecutar y cancelación veraz.
+- Cancelación recuperable, límites de trabajos y bloqueo de opciones de IA incompatibles.
+- Subidas por streaming, backup/restauración de pendientes y retención planificada antes de borrar.
+- Importación tolerante a notas defectuosas, identidades delimitadas y anclas para recuperar procedencia.
+- Rechazo de adaptaciones incompletas, planes editoriales comprobados y caché por proveedor.
+- Pillow 13, validación de imágenes y lista explícita de archivos públicos.
+- Recuperación de actualizaciones del plugin y del instalador; publicación condicionada al CI y aceptación de la candidata.
+- Las comprobaciones manuales pendientes se registran en docs/beta-acceptance.json; este cambio no publica por sí solo la versión.
+
 ## 0.10.1 — Revista 90's más ligera en el Kobo
 
 - Revista 90's lleva la portada y las carátulas como imágenes JPEG compuestas en el servicio, en lugar de SVG, y ajusta las imágenes de las notas a la pantalla del Kobo. La revista se ve mejor en el lector y pesa alrededor de un 40 % menos.

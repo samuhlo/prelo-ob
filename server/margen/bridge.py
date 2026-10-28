@@ -3,7 +3,11 @@ from typing import Literal
 from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel, Field
 from .app import auth, limit_body
-from .codex_editor import codex_complete
+from .codex_editor import codex_complete, codex_executable
+from . import __version__
+import time
+
+LOGIN_STATUS = {"at": 0.0, "authenticated": False}
 from .editor import timeout
 from .artwork import ArtworkRequest, codex_artwork
 
@@ -22,7 +26,14 @@ class Completion(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    if time.monotonic() - LOGIN_STATUS["at"] > 30:
+        try:
+            codex_executable()
+            LOGIN_STATUS["authenticated"] = True
+        except Exception:
+            LOGIN_STATUS["authenticated"] = False
+        LOGIN_STATUS["at"] = time.monotonic()
+    return {"status": "ok", "version": __version__, "authenticated": LOGIN_STATUS["authenticated"]}
 
 
 @app.post("/v1/complete", dependencies=[Depends(auth)])
