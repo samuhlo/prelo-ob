@@ -23,7 +23,7 @@ created = False
 try:
     docker("create", "--name", name, "--network", "none",
            "--label", "local.margen.purpose=epub-validation",
-           "eclipse-temurin:21-jre", "java", "-jar", "/checker/epubcheck.jar", "/book.epub")
+           "eclipse-temurin:21-jre", "java", "-jar", "/checker/epubcheck.jar", "/book.epub", timeout=120)
     created = True
     # docker cp streams from the client; the VM is never given a host directory.
     docker("cp", str(args.checker.resolve()), name + ":/checker")

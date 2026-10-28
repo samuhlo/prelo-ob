@@ -1,7 +1,9 @@
 import base64
+import io
+from PIL import Image
 import re
 from typing import Literal
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator, PrivateAttr
 
 
 class Source(BaseModel):
@@ -13,6 +15,7 @@ class Source(BaseModel):
 
 
 class Asset(BaseModel):
+    _pixels: int = PrivateAttr(default=0)
     id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,80}$")
     media_type: Literal["image/png", "image/jpeg", "image/gif", "image/webp"]
     data: str = Field(max_length=12_000_000)
@@ -32,6 +35,15 @@ class Asset(BaseModel):
             raise ValueError("El adjunto no coincide con el tipo de imagen.")
         if self.media_type == "image/webp" and raw[8:12] != b"WEBP":
             raise ValueError("WebP no válido.")
+        try:
+            with Image.open(io.BytesIO(raw), formats=["PNG", "JPEG", "GIF", "WEBP"]) as image:
+                width, height = image.size
+                if max(width, height) > 20_000 or width * height > 20_000_000:
+                    raise ValueError("Cada imagen admite hasta 20 megapíxeles y 20.000 píxeles por lado.")
+                self._pixels = width * height
+                image.verify()
+        except (OSError, SyntaxError, Image.DecompressionBombError) as exc:
+            raise ValueError("El adjunto no es una imagen íntegra y compatible.") from exc
         return self
 
 
@@ -67,6 +79,8 @@ class PublicationRequest(BaseModel):
                 raise ValueError("Identificadores repetidos.")
         if sum(len(n.markdown) for n in self.notes) > 600_000:
             raise ValueError("Selecciona menos notas: máximo 600.000 caracteres por edición.")
+        if sum(a._pixels for a in self.assets) > 80_000_000:
+            raise ValueError("Los adjuntos superan 80 megapíxeles por edición. Selecciona menos imágenes.")
         if sum(len(a.data) for a in self.assets) > 32_000_000:
             raise ValueError("Los adjuntos superan el límite de 32 MB.")
         return self

@@ -6,7 +6,7 @@
 
 Prelo convierte una selección de notas de Obsidian en una publicación EPUB para Kobo. Preparas la lectura, la dejas en la cola y, cuando conectas el lector por USB al Mac, el conector recoge las anotaciones y entrega las publicaciones pendientes. Los subrayados vuelven al vault con enlaces a sus notas de origen.
 
-**Beta actual: 0.10.1.** [Descargar para Mac](https://github.com/samuhlo/prelo-ob/releases/download/0.10.1/prelo-macos-0.10.1.zip) · [Descargar solo el plugin](https://github.com/samuhlo/prelo-ob/releases/download/0.10.1/prelo-plugin-0.10.1.zip) · [Releases](https://github.com/samuhlo/prelo-ob/releases)
+**Distribución beta.** Consulta las versiones publicadas y sus paquetes de Mac/plugin en [Releases](https://github.com/samuhlo/prelo-ob/releases). La candidata 1.0.0 está sujeta a las [comprobaciones de aceptación](docs/validacion-publica.md).
 
 ## Instalar
 
@@ -15,7 +15,7 @@ Prelo tiene dos piezas: un servicio en el Mac que genera las publicaciones y ges
 ### En el Mac al que conectarás el Kobo
 
 1. Ten Obsidian y un vault abierto al menos una vez. Instala [uv](https://docs.astral.sh/uv/getting-started/installation/) y [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/), o usa tu Colima ya configurado e iniciado.
-2. Descarga y descomprime **prelo-macos-0.10.1.zip** desde la release. Cierra Obsidian antes de instalar.
+2. Descarga y descomprime el paquete **prelo-macos de la versión elegida** desde la release. Cierra Obsidian antes de instalar.
 3. Abre **Instalar Prelo.command**. Indica la carpeta del vault y elige si quieres usar tu Codex CLI para IA; puedes empezar sin IA.
 4. Abre Obsidian. En **Ajustes → Complementos de la comunidad**, activa Prelo si es necesario.
 
@@ -25,7 +25,7 @@ El paquete incluye el plugin compilado: no necesitas Node ni compilar el proyect
 
 ### Plugin en otros ordenadores
 
-Puedes instalarlo con [BRAT](https://github.com/TfTHacker/obsidian42-brat): añade `samuhlo/prelo-ob` como plugin beta y selecciona la versión `0.10.1`. También puedes descomprimir el ZIP del plugin y copiar `margen` a `.obsidian/plugins/` de tu vault.
+Puedes instalarlo con [BRAT](https://github.com/TfTHacker/obsidian42-brat): añade `samuhlo/prelo-ob` como plugin beta y selecciona la versión publicada que vayas a usar. También puedes descomprimir el ZIP del plugin y copiar `margen` a `.obsidian/plugins/` de tu vault.
 
 Después importa el archivo privado de conexión de **tu propio servidor** desde **Prelo: Conectar con el servidor**. Para usarlo desde otro equipo, el Mac necesita una dirección accesible por HTTPS en tu red privada; `127.0.0.1` solo sirve en el propio Mac. [Conectar otro ordenador](docs/instalacion.md#conectar-otro-ordenador).
 

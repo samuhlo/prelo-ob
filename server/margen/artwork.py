@@ -69,13 +69,15 @@ def image_prompt(request: ArtworkRequest):
     )
 
 
-def codex_artwork(request: ArtworkRequest):
+def codex_artwork(request: ArtworkRequest, cancelled=lambda: False):
     executable = os.getenv("CODEX_BIN") or shutil.which("codex")
     if not executable:
         raise ValueError("No se encuentra Codex para generar las ilustraciones.")
     if not SLOTS.acquire(timeout=480):
         raise ValueError("Codex está preparando otra edición. Espera a que termine.")
     try:
+        if cancelled():
+            raise Cancelled()
         env = dict(os.environ)
         for key in ["OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"]:
             env.pop(key, None)
@@ -113,7 +115,7 @@ def codex_artwork(request: ArtworkRequest):
                      Path(os.getenv("CODEX_HOME", str(Path.home() / ".codex"))) / "generated_images"}
             # The CLI copies tool outputs to its per-thread folder. The model may have
             # seen an internal tool URI instead of that final host path.
-            candidates = []
+            candidates, session_roots = [], set()
             for line in result.stdout.splitlines():
                 try:
                     event = json.loads(line)
@@ -122,6 +124,7 @@ def codex_artwork(request: ArtworkRequest):
                 thread = event.get("thread_id", "") if event.get("type") == "thread.started" else ""
                 if re.fullmatch(r"[0-9a-f-]{36}", thread):
                     for root in roots:
+                        session_roots.add((root / thread).resolve())
                         candidates += [p.resolve() for p in (root / thread).glob("*")
                                        if p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}]
             candidates = list(set(candidates))
@@ -130,8 +133,8 @@ def codex_artwork(request: ArtworkRequest):
             else:
                 declared = json.loads(answer.read_text())["image_path"]
                 image_path = Path(unquote(urlparse(declared).path) if declared.startswith("file://") else declared).resolve()
-                if not any(image_path.is_relative_to(root.resolve()) for root in roots) and not image_path.is_relative_to(workdir):
-                    raise ValueError("No se encuentra la imagen generada en la carpeta de esta sesión.")
+            if not any(image_path.is_relative_to(root) for root in session_roots) and not image_path.is_relative_to(workdir):
+                raise ValueError("No se encuentra la imagen generada en la carpeta de esta sesión.")
             if not image_path.is_file() or image_path.stat().st_size > 30_000_000:
                 raise ValueError("No se ha recibido una imagen válida.")
             # Encode for the e-reader; the creative content remains the generated artwork.
@@ -141,7 +144,10 @@ def codex_artwork(request: ArtworkRequest):
                 image.thumbnail((1600, 1800))
                 output = io.BytesIO()
                 image.save(output, format="JPEG", quality=88, optimize=True)
-            return {"data": base64.b64encode(output.getvalue()).decode(), "media_type": "image/jpeg"}
+            result = {"data": base64.b64encode(output.getvalue()).decode(), "media_type": "image/jpeg"}
+            # Only the artifact of this ephemeral invocation is removed; the service caches its copy.
+            image_path.unlink(missing_ok=True)
+            return result
     except (subprocess.TimeoutExpired, json.JSONDecodeError, KeyError) as exc:
         raise ValueError("No se pudo completar la ilustración. Puedes reintentar la edición.") from exc
     finally:
@@ -175,7 +181,7 @@ def generate_visuals(request: PublicationRequest, plan: EditorialPlan, cache_dir
         if reused:
             encoded = {"data": base64.b64encode(cached.read_bytes()).decode(), "media_type": "image/jpeg"}
         elif provider == "codex-cli":
-            encoded = codex_artwork(job)
+            encoded = codex_artwork(job, cancelled)
         else:
             try:
                 with httpx.Client(timeout=510, follow_redirects=False) as client:
