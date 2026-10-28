@@ -3,9 +3,10 @@
   "product_sha256": "0a66f697cbaa777a6804dfac13cefc69d5ed205e0176b932312abc6247940779",
   "checks": {
     "clean_mac_install": {
-      "status": "pending",
-      "date": "",
-      "summary": "La prueba confirmada por el propietario correspondía a una versión anterior. Pendiente instalar el paquete 1.0.0 en un Mac limpio y comprobar agentes tras iniciar sesión. El runtime aislado en este Mac no sustituye esta prueba."
+      "status": "waived",
+      "date": "2026-10-28",
+      "summary": "El propietario dispensa expresamente la instalación en otro Mac limpio para la beta 1.0.0, de uso principalmente personal. Asume resolver posibles problemas de instalación si otras personas la prueban. No se ha realizado ni se certifica esa prueba para esta versión.",
+      "approved_by": "owner"
     },
     "obsidian_upgrade": {
       "status": "passed",

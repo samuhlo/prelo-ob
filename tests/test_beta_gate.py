@@ -42,3 +42,39 @@ def test_preparing_another_version_invalidates_manual_acceptance(tmp_path):
     changed=json.loads((tmp_path/'docs/beta-acceptance.json').read_text())
     assert changed['version']=='0.12.0' and not changed['product_sha256']
     assert all(item['status']=='pending' for item in changed['checks'].values())
+
+
+def release_gate_source():
+    """Execute the actual release step, including its one-version owner exception."""
+    import textwrap
+    workflow=(Path(__file__).resolve().parents[1]/'.github/workflows/release.yml').read_text()
+    return textwrap.dedent(workflow.split("python - <<'PY'\n",1)[1].split('\n          PY',1)[0])
+
+
+def test_release_allows_only_the_documented_clean_install_waiver(tmp_path, monkeypatch):
+    import pytest
+    record=fixture(tmp_path)
+    install=record['checks']['clean_mac_install']
+    install.update(status='waived',approved_by='owner')
+    def save():
+        (tmp_path/'docs/beta-acceptance.json').write_text(json.dumps(record))
+    monkeypatch.chdir(tmp_path)
+    save()
+    exec(compile(release_gate_source(),'release_acceptance','exec'),{})
+    # Other pending checks, unapproved exceptions and older/future versions stay blocked.
+    record['checks']['usb_roundtrip']['status']='pending';save()
+    with pytest.raises(SystemExit):exec(compile(release_gate_source(),'release_acceptance','exec'),{})
+    record['checks']['usb_roundtrip']['status']='passed'
+    install.pop('approved_by');save()
+    with pytest.raises(SystemExit):exec(compile(release_gate_source(),'release_acceptance','exec'),{})
+    install['approved_by']='owner'
+    for version in ['0.11.0','1.1.0']:
+        record['version']=version
+        (tmp_path/'manifest.json').write_text(json.dumps({'version':version}))
+        record['product_sha256']=product_digest(tmp_path);save()
+        with pytest.raises(SystemExit):exec(compile(release_gate_source(),'release_acceptance','exec'),{})
+    record['version']='1.0.0'
+    (tmp_path/'manifest.json').write_text(json.dumps({'version':'1.0.0'}))
+    record['product_sha256']=product_digest(tmp_path);save()
+    (tmp_path/'server/margen/app.py').write_text('# Changed after acceptance')
+    with pytest.raises(SystemExit):exec(compile(release_gate_source(),'release_acceptance','exec'),{})
