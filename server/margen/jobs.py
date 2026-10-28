@@ -71,8 +71,8 @@ def submit(root, job_id, request: PublicationRequest, build):
             raise QueueFull("La cola de ediciones está llena. Espera a que termine o cancela una edición.")
         record = {"id": job_id, "state": "queued", "message": "Edición en cola.",
                   "created_at": now(), "updated_at": now(), "publication_id": None, "fingerprint": fingerprint}
-        ACTIVE.add(key)
         write(path, record)
+        ACTIVE.add(key)
 
     def cancelled():
         with LOCK:
@@ -102,7 +102,15 @@ def submit(root, job_id, request: PublicationRequest, build):
             with LOCK:
                 ACTIVE.discard(key)
                 CANCELLED.discard(key)
-    POOL.submit(run)
+    try:
+        POOL.submit(run)
+    except BaseException:
+        # Persistence succeeded, but no worker owns this job. read() will recover
+        # its queued record as failed, including when the disk remains unwritable.
+        with LOCK:
+            ACTIVE.discard(key)
+            CANCELLED.discard(key)
+        raise
     return dict(record)
 
 

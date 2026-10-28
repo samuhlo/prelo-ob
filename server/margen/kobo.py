@@ -53,7 +53,9 @@ def row(record):
 
 def listing(root):
     with database(root) as db:
-        return [row(r) for r in db.execute("SELECT * FROM kobo_commands ORDER BY created_at DESC LIMIT 100")]
+        return [{**row(r), "device": r["device"]} for r in db.execute(
+            """SELECT c.*,t.device FROM kobo_commands c LEFT JOIN kobo_command_targets t ON c.id=t.id
+               ORDER BY CASE WHEN c.state IN ('pending','executing','failed') THEN 0 ELSE 1 END, c.created_at DESC""")]
 
 
 def pending(root, device=""):
@@ -101,6 +103,9 @@ def request_removal(root, path, device=""):
     with database(root) as db:
         existing = db.execute("SELECT * FROM kobo_commands WHERE state IN ('pending','executing') AND path=?", (path,)).fetchone()
         if existing:
+            target = db.execute("SELECT device FROM kobo_command_targets WHERE id=?", (existing["id"],)).fetchone()
+            if not target or target["device"] != device:
+                raise ValueError("Ya existe una orden para otro lector con ese nombre. Revisa las órdenes pendientes.")
             if existing["kind"] == "remove":
                 return row(existing)
             raise ValueError("Ese libro tiene una subida pendiente. Cancélala en su lugar.")
@@ -124,7 +129,9 @@ def upload(root, filename, data, device=""):
         state = storage(root)
         if state["used_bytes"] + size > state["limit_bytes"]:
             raise ValueError("La subida no cabe en la cuota. Libera espacio o amplía el límite.")
-        if state["free_disk_bytes"] < size + 128_000_000:
+        # A same-filesystem rename consumes no second copy of the staged EPUB.
+        additional = 0 if isinstance(data, Path) and data.stat().st_dev == folder.stat().st_dev else size
+        if state["free_disk_bytes"] < additional + 128_000_000:
             raise ValueError("Falta espacio para guardar la subida.")
         try:
             with database(root) as db:

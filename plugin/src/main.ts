@@ -11,6 +11,8 @@ import { writingModes, studyAids, WritingMode, StudyAids, Language } from "./edi
 import { Composer, MARGEN_ICON, STUDIO_TYPE, StudioTab, StudioView } from "./studio";
 import { draftFromComposer, emptyComposer, parkedComposers } from "./session";
 import { addPaths, noteTitle, renamePaths } from "./selection";
+import { installPluginFiles, recoverPluginUpdate, UpdateTransaction } from "./installation";
+import { validateConnection, Connection } from "./connection";
 import type { KoboPlace } from "./delivery";
 import type { KoboBook } from "./reader";
 import { findUpdate, installable, PLUGIN_FILES, RELEASES_API, RELEASES_URL, ReleaseUpdate, UPDATE_INTERVAL, verifyUpdate } from "./updates";
@@ -53,6 +55,10 @@ const DEFAULTS: Settings = {
   frontmatter: "tipo: fuente_externa\nzona: cerebro\narea: media_consumo\nformato: subrayados\ntags: []\nrelacionadas: []",
 };
 
+class ServiceError extends Error {
+  constructor(readonly status: number, message: string) { super(message); }
+}
+
 export default class Prelo extends Plugin {
   state!: State;
   busy = false;
@@ -69,6 +75,13 @@ export default class Prelo extends Plugin {
   private saveQueue: Promise<void> = Promise.resolve();
   private sharingParked?: Promise<void>;
   async onload() {
+    if (this.app.vault.adapter instanceof FileSystemAdapter) {
+      const directory = path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`);
+      if (await recoverPluginUpdate(directory)) {
+        new Notice("Se ha recuperado la versión anterior tras una actualización interrumpida. Reinicia Obsidian.", 0);
+        return;
+      }
+    }
     // Enabled or updated in a running workspace: its Prelo tab is restored after this load.
     const reloading = this.app.workspace.layoutReady;
     const stored = await this.loadData();
@@ -267,8 +280,8 @@ export default class Prelo extends Plugin {
     finally { this.sharingParked = undefined; }
   }
   private async flushParked() {
-    for (const parked of this.localComposers()) {
-      if (!this.localComposers().includes(parked)) continue;
+    while (this.localComposers().length) {
+      const parked = this.localComposers()[0];
       await this.api("/v1/drafts", draftFromComposer(parked, parked.draftId!));
       // An acknowledgement for an older revision must never remove a newer local one.
       this.removeParkedDraft(parked.draftId!, parked);
@@ -282,7 +295,12 @@ export default class Prelo extends Plugin {
       await this.api(`/v1/jobs/${id}/cancel`, {});
       new Notice("Cancelando la edición. Se detendrá al terminar la parte en curso.");
     } catch (error) {
-      new Notice(error instanceof Error ? error.message : String(error));
+      // A rejected cancellation is not proof that the job was cancelled or lost.
+      let absent = false;
+      try { await this.api(`/v1/jobs/${id}`); }
+      catch (lookupError) { absent = await this.releaseMissingJob(id, lookupError); }
+      new Notice(absent ? "El servidor confirma que el trabajo ya no existe. Puedes preparar otra edición." :
+        error instanceof Error ? error.message : String(error));
       return;
     }
     // Keep recovery available until the server confirms a terminal state.
@@ -375,7 +393,7 @@ export default class Prelo extends Plugin {
     const update = this.update;
     if (!update) return;
     if (!installable(update)) return this.openUpdates();
-    let installed = false;
+    let transaction: UpdateTransaction | undefined;
     await this.run(async () => {
       const notice = new Notice(`Descargando Prelo ${update.version}…`, 0);
       try {
@@ -387,28 +405,36 @@ export default class Prelo extends Plugin {
         }
         const { minAppVersion } = verifyUpdate(files, { id: this.manifest.id, version: update.version });
         if (!requireApiVersion(minAppVersion)) throw new Error(`Prelo ${update.version} necesita Obsidian ${minAppVersion} o posterior. Actualiza Obsidian primero.`);
+        await this.shareParked().catch(() => undefined);
         await this.save();
+        if (!(this.app.vault.adapter instanceof FileSystemAdapter)) throw new Error("Instala esta actualización manualmente en este equipo.");
         const dir = this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
-        // The manifest goes last, so an interrupted copy still reports the previous version.
-        for (const name of ["main.js", "styles.css", "manifest.json"])
-          await this.app.vault.adapter.writeBinary(normalizePath(`${dir}/${name}`), files[name]);
-        installed = true;
+        transaction = await installPluginFiles(path.join(this.app.vault.adapter.getBasePath(), dir), files);
       } finally { notice.hide(); }
     });
-    if (installed) await this.reloadAfterUpdate(update.version);
+    if (transaction) await this.reloadAfterUpdate(update.version, transaction);
   }
-  private async reloadAfterUpdate(version: string) {
+  private async reloadAfterUpdate(version: string, transaction: UpdateTransaction) {
     const registry: unknown = Reflect.get(this.app, "plugins");
-    if (!isPluginRegistry(registry)) return void new Notice(`Prelo ${version} instalado. Reinicia Obsidian para usarlo.`, 0);
+    if (!isPluginRegistry(registry)) {
+      // Activation has not happened; retain the journal across the restart.
+      return void new Notice(`Prelo ${version} instalado. Reinicia Obsidian para usarlo.`, 0);
+    }
     const id = this.manifest.id;
     try {
       await registry.disablePlugin(id);
       // main.js is read from disk on enable, but manifests are cached until reloaded.
       if (typeof registry.loadManifests === "function") await registry.loadManifests();
       if (!await registry.enablePlugin(id)) throw new Error("enable");
+      await transaction.commit();
       new Notice(`Prelo ${version} instalado y en marcha.`, 8000);
     } catch {
-      new Notice(`Prelo ${version} instalado. Reinicia Obsidian para usarlo.`, 0);
+      await transaction.rollback();
+      try {
+        if (typeof registry.loadManifests === "function") await registry.loadManifests();
+        await registry.enablePlugin(id);
+      } catch { /* Files are restored; a full Obsidian restart may still be necessary. */ }
+      new Notice("La actualización no se pudo activar. Se ha restaurado la versión anterior; reinicia Obsidian si es necesario.", 0);
     }
   }
   preview(publication: Publication) { this.showModal(new PreviewModal(this, publication)); }
@@ -430,12 +456,10 @@ export default class Prelo extends Plugin {
     try { await action(); } catch (error) { new Notice(error instanceof Error ? error.message : String(error), 12000); }
     finally { this.busy = false; }
   }
-  async api(endpoint: string, body?: unknown, method?: string) {
-    const s = this.state.settings;
+  async api(endpoint: string, body?: unknown, method?: string, candidate?: Connection) {
+    const s = candidate ?? this.state.settings;
     if (!s.token) throw new Error("Añade la credencial del servicio en Ajustes → Prelo.");
-    const base = new URL(s.serverUrl);
-    if (!["http:", "https:"].includes(base.protocol) || base.username || base.password)
-      throw new Error("Usa una URL HTTP o HTTPS sin credenciales en la dirección.");
+    validateConnection({ serverUrl: s.serverUrl, token: s.token });
     const binary = body instanceof ArrayBuffer;
     const response = await requestUrl({
       url: s.serverUrl.replace(/\/$/, "") + endpoint,
@@ -446,14 +470,26 @@ export default class Prelo extends Plugin {
     if (response.status >= 400) {
       let message = `El servicio respondió ${response.status}.`;
       try { message = apiErrorMessage(response.status, response.json.detail); } catch {}
-      throw new Error(message);
+      throw new ServiceError(response.status, message);
     }
     return response;
+  }
+  private async releaseMissingJob(id: string, error: unknown): Promise<boolean> {
+    if (!(error instanceof ServiceError) || error.status !== 404) return false;
+    if (this.state.activeJob === id) {
+      this.state.activeJob = undefined;
+      await this.save();
+      this.notifySelection();
+    }
+    return true;
   }
   async awaitPublication(jobId: string, progress: (message: string) => void): Promise<Publication> {
     // Long editions are written in parts; wait up to an hour before handing off to the library.
     for (let attempt = 0; attempt < 1800; attempt++) {
-      const job = (await this.api(`/v1/jobs/${jobId}`)).json;
+      let response;
+      try { response = await this.api(`/v1/jobs/${jobId}`); }
+      catch (error) { await this.releaseMissingJob(jobId, error); throw error; }
+      const job = response.json;
       progress(job.message);
       if (["complete", "failed", "cancelled"].includes(job.state)) {
         this.state.activeJob = undefined; await this.save();
@@ -472,7 +508,7 @@ export default class Prelo extends Plugin {
     catch (error) {
       // Keep the identifier if the response was lost after the server accepted it.
       try { await this.api(`/v1/jobs/${id}`); }
-      catch { this.state.activeJob = undefined; await this.save(); }
+      catch (lookupError) { await this.releaseMissingJob(id, lookupError); }
       throw error;
     }
     return this.awaitPublication(id, progress);
@@ -688,7 +724,8 @@ export default class Prelo extends Plugin {
         if (h.match === "unresolved" || (h.source && !sourcePath)) unresolved++;
         const groupId = h.source ? h.source.id : hash(h.volume_id).slice(0, 20);
         const title = h.source?.title || h.publication_title || h.title || "Lectura";
-        let file = this.importNoteFor(groupId);
+        const existingQuote = await this.highlightNote(h.key);
+        let file = existingQuote || this.importNoteFor(groupId);
         if (!file) {
           const target = this.availableHighlightPath(title);
           const properties = this.state.settings.frontmatter.trim();
@@ -698,7 +735,7 @@ export default class Prelo extends Plugin {
           try { file = await this.app.vault.create(target, header); }
           catch (e) { throw new Error(`No se pudo crear ${target}. Repite la importación cuando termine la sincronización.`); }
         }
-        this.state.importNotes[groupId] = file.path;
+        if (!existingQuote) this.state.importNotes[groupId] = file.path;
         await this.app.vault.process(file, current => {
           const next = appendHighlight(current, h, sourcePath);
           if (next !== current) imported++;
@@ -873,23 +910,17 @@ class ConnectionModal extends Modal {
   onOpen() {
     this.modalEl.addClass("margen-modal");
     this.contentEl.createEl("h2", { text: "Conectar con el servidor" });
-    this.contentEl.createEl("p", { text: "Selecciona conexion-prelo.json del paquete privado. Activa Tailscale antes de comprobar la conexión." });
+    this.contentEl.createEl("p", { text: "Selecciona el archivo privado de conexión de tu servidor. Si está en otro equipo, conecta primero a tu red privada." });
     const input = this.contentEl.createEl("input", { type: "file" });
     input.accept = ".json";
     input.onchange = () => void this.plugin.run(async () => {
       const file = input.files?.[0];
       if (!file) return;
       const value = JSON.parse(await file.text());
-      if (typeof value.serverUrl !== "string" || typeof value.token !== "string" || value.token.length < 24)
-        throw new Error("Archivo de conexión no válido.");
-      const url = new URL(value.serverUrl);
-      if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error("Dirección no válida.");
-      this.plugin.state.settings.serverUrl = value.serverUrl;
-      this.plugin.state.settings.token = value.token;
-      for (const key of ["outputFolder", "highlightsFolder"] as const)
-        if (typeof value[key] === "string") this.plugin.state.settings[key] = safeRelative(value[key]);
+      const connection = validateConnection(value);
+      await this.plugin.api("/v1/status", undefined, undefined, connection);
+      this.plugin.state.settings = { ...this.plugin.state.settings, ...connection };
       await this.plugin.save();
-      await this.plugin.api("/v1/status");
       new Notice("Conectado a tu biblioteca compartida.");
       this.close();
     });

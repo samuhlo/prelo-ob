@@ -8,11 +8,11 @@ Prelo es una instalación personal: cada persona ejecuta su servicio y genera su
 - El servicio guarda fuentes de las ediciones, EPUB, portadas, catálogo, borradores, cola y anotaciones en su volumen Docker.
 - El conector USB lee una copia comprobada de `KoboReader.sqlite`, importa las anotaciones, copia las publicaciones pendientes y expulsa el dispositivo. No escribe directamente en la base de datos del lector.
 - Los subrayados se añaden al vault. Una actualización conserva el texto previo y los comentarios; no se borran notas como consecuencia de eliminar una cita en el Kobo.
-- La limpieza de almacenamiento del servicio no elimina libros del Kobo ni exportaciones manuales del vault.
+- La limpieza de almacenamiento del servicio no elimina libros del Kobo ni exportaciones manuales del vault. Las retiradas solicitadas explícitamente se vinculan al lector y a la huella del archivo; la importación de citas ocurre antes de ejecutarlas.
 
 ## Red e IA
 
-Sin IA, las notas seleccionadas se procesan en tu propio servicio. Al activar IA se envían al proveedor configurado. La generación con Codex utiliza la sesión del usuario del Mac; las credenciales de ChatGPT no se copian al contenedor ni al plugin. La cuota y la disponibilidad dependen de esa cuenta.
+Sin IA, las notas seleccionadas se procesan en tu propio servicio. Al activar IA se envían al proveedor configurado. La generación con Codex utiliza la sesión del usuario del Mac; las credenciales de ChatGPT no se copian al contenedor ni al plugin. La cuota y la disponibilidad dependen de esa cuenta. Las imágenes nuevas se leen únicamente del directorio de su sesión de generación; la copia temporal del host se retira tras preparar el resultado. La caché del servicio conserva la ilustración para reintentos.
 
 El plugin consulta las releases públicas de GitHub al iniciar y cada seis horas para avisar de nuevas versiones, incluidas las betas. No envía notas, rutas del vault ni credenciales; GitHub recibe la conexión HTTP habitual. Puedes desactivar esta consulta en Ajustes de Prelo.
 
