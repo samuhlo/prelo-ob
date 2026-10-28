@@ -14,9 +14,17 @@ LICENSE
 README.md
 THIRD_PARTY_NOTICES.md
 assets/LICENSE.anaco
+assets/prelo-logo-firma.svg
 assets/prelo-logo.svg
 compose.yaml
 docs/desarrollo.md
+docs/imagenes/apertura-90s.jpg
+docs/imagenes/biblioteca.png
+docs/imagenes/estilo.png
+docs/imagenes/kobo.png
+docs/imagenes/portada-90s.jpg
+docs/imagenes/preparar.png
+docs/imagenes/subrayados.png
 docs/beta-acceptance.json
 docs/instalacion.md
 docs/privacidad.md

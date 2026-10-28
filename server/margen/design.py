@@ -38,11 +38,15 @@ def text_lines(text, x, y, width=32, size=42, leading=None, color="#142b36", wei
 
 
 COVER_LABELS = {
-    "es": {"study": "REVISTA DE ESTUDIO", "contents": "EN ESTE CUADERNO", "sections": "secciones",
+    "es": {"study": "REVISTA DE ESTUDIO", "contents": "EN ESTE CUADERNO", "section": "sección", "sections": "secciones",
            "personal": "EDICIÓN PERSONAL", "tagline": "IDEAS · GUÍAS · LECTURAS"},
-    "gl": {"study": "REVISTA DE ESTUDO", "contents": "NESTE CADERNO", "sections": "seccións",
+    "gl": {"study": "REVISTA DE ESTUDO", "contents": "NESTE CADERNO", "section": "sección", "sections": "seccións",
            "personal": "EDICIÓN PERSOAL", "tagline": "IDEAS · GUÍAS · LECTURAS"},
 }
+
+
+def section_count(count, labels):
+    return f"{count} {labels['section'] if count == 1 else labels['sections']}"
 
 
 def cover_svg(plan, issue_date, style, artwork=None, language="es"):
@@ -65,7 +69,7 @@ def cover_svg(plan, issue_date, style, artwork=None, language="es"):
 {title}{subtitle}
 <text x="80" y="1040" font-size="14" letter-spacing="3">{labels["contents"]}</text>
 {topics}
-<text x="80" y="1205" font-size="17">{date} · {len(plan.chapters)} {labels["sections"]}</text>
+<text x="80" y="1205" font-size="17">{date} · {section_count(len(plan.chapters), labels)}</text>
 </g></svg>"""
     image = ""
     if artwork:
@@ -94,7 +98,7 @@ def cover_svg(plan, issue_date, style, artwork=None, language="es"):
 {shadow}{headline}{subtitle}
 <path d="M55 1223 H844" stroke="#3dbbb0" stroke-width="3"/>
 <text x="55" y="1250" font-size="16" fill="#c8f3e5">{labels["tagline"]}</text>
-<text x="844" y="1250" text-anchor="end" font-size="16" fill="#c8f3e5">{len(plan.chapters)} {labels["sections"].upper()}</text>
+<text x="844" y="1250" text-anchor="end" font-size="16" fill="#c8f3e5">{section_count(len(plan.chapters), labels).upper()}</text>
 </g></svg>"""
 
 
@@ -190,7 +194,7 @@ def cover_jpeg(plan, issue_date, artwork=None, language="es"):
     canvas.lines(wrapped(plan.subtitle, 61, 3), 55, 1150, 22, 25, "#ffffff")
     canvas.box(55, 1221.5, 789, 3, "#3dbbb0")
     canvas.lines([labels["tagline"]], 55, 1250, 16, 0, "#c8f3e5")
-    canvas.lines([f"{len(plan.chapters)} {labels['sections'].upper()}"], 844, 1250, 16, 0, "#c8f3e5", anchor="rs")
+    canvas.lines([section_count(len(plan.chapters), labels).upper()], 844, 1250, 16, 0, "#c8f3e5", anchor="rs")
     return canvas.jpeg(85)
 
 

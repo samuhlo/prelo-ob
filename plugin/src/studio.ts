@@ -33,7 +33,10 @@ type Library = {
 };
 const labelStyle = (style?: string) => style === "retro90" ? "Revista 90’s" : "Revista de estudio";
 const date = (value: string) => new Date(value).toLocaleDateString("es-ES");
-const size = (bytes: number) => `${(bytes / 1e9).toLocaleString("es-ES", { maximumFractionDigits: 2 })} GB`;
+// A few editions weigh megabytes: below 1 GB, "0 GB" would read as an empty library.
+const size = (bytes: number) => bytes < 1e9
+  ? `${Math.max(bytes ? 1 : 0, Math.round(bytes / 1e6)).toLocaleString("es-ES")} MB`
+  : `${(bytes / 1e9).toLocaleString("es-ES", { maximumFractionDigits: 2 })} GB`;
 
 function button(parent: HTMLElement, text: string, action: () => void, icon?: string, cls = "") {
   const el = parent.createEl("button", { cls: `margen-button ${cls}`, attr: { type: "button" } });
@@ -420,7 +423,7 @@ export class StudioView extends ItemView {
     orderCheckbox.onchange = () => { c.preserveOrder = orderCheckbox.checked; void this.plugin.save(); };
     const orderCopy = order.createDiv();
     orderCopy.createEl("strong", { text: "Respetar exactamente el orden de mi selección" });
-    orderCopy.createEl("small", { text: "Coloca los temas y sus exámenes en Revisar selección. Este orden queda bloqueado, incluso si las instrucciones extra piden otro." });
+    orderCopy.createEl("small", { text: "Ordena las notas en Revisar selección. Ese orden queda bloqueado, incluso si las instrucciones extra piden otro." });
     if (c.style === "study" && !adaptsContent(c)) {
       const row = fields.createEl("label", { cls: "margen-toggle-row" });
       const checkbox = row.createEl("input", { type: "checkbox" }); checkbox.checked = c.useAI;
@@ -723,7 +726,7 @@ export class StudioView extends ItemView {
     progress.createDiv({ cls: "margen-storage-track" }).createDiv().style.width = `${book.percent}%`;
     progress.createEl("small", { text: state.text });
     const actions = row.createDiv({ cls: "margen-reader-actions" });
-    const marks = button(actions, book.highlights === 1 ? "1 subrayado" : `${book.highlights} subrayados`, () => this.plugin.showHighlights(book), "highlighter");
+    const marks = button(actions, !book.highlights ? "Sin subrayados" : book.highlights === 1 ? "1 subrayado" : `${book.highlights} subrayados`, () => this.plugin.showHighlights(book), "highlighter");
     marks.disabled = !book.highlights;
     iconButton(actions, "ellipsis", `Opciones de ${book.title}`, event => {
       const menu = new Menu();

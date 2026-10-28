@@ -1,5 +1,5 @@
 import {
-  App, FileSystemAdapter, Modal, Notice, Plugin, PluginSettingTab,
+  App, ButtonComponent, FileSystemAdapter, Modal, Notice, Plugin, PluginSettingTab,
   requestUrl, requireApiVersion, Setting, TFile, TFolder, TAbstractFile, MarkdownView, normalizePath, addIcon, setIcon,
 } from "obsidian";
 import { promises as fs, constants as fsConstants } from "node:fs";
@@ -211,11 +211,14 @@ export default class Prelo extends Plugin {
         return;
       }
       const starting = !this.state.composer.active;
+      const studioOpen = this.app.workspace.getLeavesOfType(STUDIO_TYPE).length > 0;
       this.changeComposer({ paths, active: true }, true);
-      if (starting && !this.app.workspace.getLeavesOfType(STUDIO_TYPE).length) void this.openStudio("compose", true);
+      if (starting && !studioOpen) void this.openStudio("compose", true);
       if (announce) {
         const added = paths.length - previous;
-        new Notice(added ? `${added === 1 ? "Nota añadida" : `${added} notas añadidas`}. Pulsa el icono de Prelo para preparar tu revista.` : "Estas notas ya están en tu selección.");
+        // The hint only helps when no Prelo view is open or about to open.
+        const hint = studioOpen || starting ? "" : " Pulsa el icono de Prelo para preparar tu revista.";
+        new Notice(added ? `${added === 1 ? "Nota añadida" : `${added} notas añadidas`} a tu revista.${hint}` : "Estas notas ya están en tu selección.");
       }
     } catch (error) { this.notifySelection(); new Notice(error instanceof Error ? error.message : String(error)); }
   }
@@ -590,7 +593,7 @@ export default class Prelo extends Plugin {
   }
   async queuePublication(publication: Publication) {
     await this.api(`/v1/publications/${publication.id}/action`, { action: "queue" });
-    new Notice("En cola. Se copiará al conectar el Kobo al Mac mini.");
+    new Notice("En cola. Se copiará al conectar el Kobo al Mac.");
   }
   async saveEpub(publication: Publication) {
     const folder = safeRelative(this.state.settings.outputFolder);
@@ -858,7 +861,12 @@ class PreloSettings extends PluginSettingTab {
     container.createEl("h2", { text: "Prelo" });
     container.createEl("h3", { text: "Versiones y actualizaciones" });
     const versions = container.createEl("p");
-    const refreshVersions = () => versions.setText(`Plugin en este equipo: ${this.plugin.manifest.version} · Servidor: ${this.plugin.serverVersion ?? "sin comprobar"}. ${this.plugin.updateMessage}`);
+    let install: ButtonComponent | undefined;
+    // Highlight the install action only when a newer release is known.
+    const refreshVersions = () => {
+      versions.setText(`Plugin en este equipo: ${this.plugin.manifest.version} · Servidor: ${this.plugin.serverVersion ?? "sin comprobar"}. ${this.plugin.updateMessage}`);
+      install?.buttonEl.toggleClass("mod-cta", !!this.plugin.update);
+    };
     refreshVersions();
     new Setting(container).setName("Buscar nuevas versiones automáticamente")
       .setDesc("Consulta las releases públicas de GitHub al iniciar y cada seis horas, incluidas las betas. No envía notas ni credenciales.")
@@ -877,15 +885,19 @@ class PreloSettings extends PluginSettingTab {
         } finally { b.setDisabled(false); }
       }))
       .addButton(b => b.setButtonText("Ver novedades").onClick(() => this.plugin.openUpdates()))
-      .addButton(b => b.setButtonText("Actualizar ahora").setCta().onClick(async () => {
-        b.setDisabled(true);
-        try { await this.plugin.installUpdate(); refreshVersions(); } finally { b.setDisabled(false); }
-      }));
+      .addButton(b => {
+        install = b;
+        b.setButtonText("Actualizar ahora").onClick(async () => {
+          b.setDisabled(true);
+          try { await this.plugin.installUpdate(); refreshVersions(); } finally { b.setDisabled(false); }
+        });
+        refreshVersions();
+      });
     new Setting(container).setName("Conexión con el servidor")
       .setDesc("Importa conexion-prelo.json, incluido en el paquete privado del panel.")
       .addButton(b => b.setButtonText("Importar conexión").onClick(() => this.plugin.showModal(new ConnectionModal(this.plugin))));
     const fields: [Exclude<keyof Settings, "checkUpdates">, string, string][] = [
-      ["serverUrl", "Servicio", "Dirección del servicio en tu Mac mini o servidor."],
+      ["serverUrl", "Servicio", "Dirección del servicio en tu Mac."],
       ["token", "Credencial del servicio", "Acceso privado incluido en el archivo de conexión. La clave del proveedor de IA se configura solo en el servidor."],
       ["outputFolder", "Exportaciones manuales", "Carpeta del vault al pulsar Guardar EPUB. La biblioteca permanece en el Mac."],
     ];

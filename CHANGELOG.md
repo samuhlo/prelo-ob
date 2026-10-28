@@ -1,5 +1,13 @@
 # Cambios
 
+## Sin publicar
+
+- Nuevo logotipo: PREL en palo grueso y la O dentro de una piedra amarilla, de la misma familia que Anaco. El icono lateral conserva la revista.
+- README con capturas del recorrido y un ejemplo de portada y carátula de Revista 90's, generados con un vault de demostración.
+- Portadas con «1 sección» en singular.
+- Ajustes: «Actualizar ahora» solo se destaca cuando hay una versión nueva; el servicio se describe como «tu Mac».
+- Biblioteca en MB por debajo de 1 GB, «Sin subrayados» en libros sin citas, avisos de selección sin la pista redundante cuando Prelo ya está abierto y separación entre la cabecera y el aviso de revista lista.
+
 ## 1.0.0 — Beta candidata, pendiente de aceptación
 
 - Drenaje de borradores y revisiones guardados durante un envío.
