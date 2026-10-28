@@ -5,22 +5,22 @@
     "clean_mac_install": {
       "status": "pending",
       "date": "",
-      "summary": "Revalidar para esta versión."
+      "summary": "La prueba confirmada por el propietario correspondía a una versión anterior. Pendiente instalar el paquete 1.0.0 en un Mac limpio y comprobar agentes tras iniciar sesión. El runtime aislado en este Mac no sustituye esta prueba."
     },
     "obsidian_upgrade": {
-      "status": "pending",
-      "date": "",
-      "summary": "Revalidar para esta versión."
+      "status": "passed",
+      "date": "2026-10-28",
+      "summary": "Obsidian 1.14.4 real en vault sintético: actualización del paquete 0.10.1 al paquete 1.0.0; ajustes conservados byte a byte; borrador de dos notas retomado; dos borradores sin conexión sobreviven cierre/reapertura y se comparten al reconectar. Vault habitual sin actualizar."
     },
     "usb_roundtrip": {
-      "status": "pending",
-      "date": "",
-      "summary": "Revalidar para esta versión."
+      "status": "passed",
+      "date": "2026-10-28",
+      "summary": "Kobo físico por USB con servicio y conector 1.0.0 aislados: dos publicaciones sintéticas copiadas y verificadas; el propietario confirma texto, tabla e imagen JPEG plana legibles. Cuatro subrayados recuperados en dos notas; segunda importación sin duplicados y comentarios conservados. Solo los dos libros de prueba retirados. La base del lector no cambió durante las operaciones del conector."
     },
     "backup_recovery": {
-      "status": "pending",
-      "date": "",
-      "summary": "Revalidar para esta versión."
+      "status": "passed",
+      "date": "2026-10-28",
+      "summary": "Servicio 1.0.0 en volumen Docker desechable y recuperación servida desde otro volumen nuevo: dos ediciones, una anotación y EPUB pendiente verificado. Repetido por CI remoto del head integrado en main. Certifica recuperación lógica de biblioteca, no recuperación completa de un Mac."
     }
   }
 }

@@ -19,6 +19,14 @@ Los tests de instalación inyectan fallos por etapa en fixtures. Los controles d
 
 El workflow de publicación exige que los cuatro resultados estén aprobados para esta versión y para la huella de sus archivos de producto. Cambiar el producto invalida una aceptación anterior; `set_version.py` reinicia los estados al preparar otra versión. El archivo es un registro humano revisable, no una prueba de que las acciones físicas se hayan ejecutado.
 
+## Resultados de 1.0.0 (28 de octubre de 2026)
+
+La cadena completa y sus correcciones están integradas en `main`. El CI remoto pasa en macOS, Windows y Linux y comprueba el servicio y su recuperación aislada. La actualización del plugin desde 0.10.1 se ha probado en Obsidian real con un vault sintético: conserva ajustes y selección, recupera dos borradores tras cerrar sin conexión y los comparte al volver a conectar.
+
+El propietario confirmó la lectura de dos publicaciones sintéticas en un Kobo físico, incluida tabla e imagen JPEG plana. Se recuperaron cuatro subrayados en dos notas; repetir la importación no añadió duplicados ni alteró comentarios. Se retiraron solo los libros de prueba y la base del lector permaneció intacta durante las operaciones del conector. No se actualizó el servicio ni el vault habitual del propietario para esta aceptación.
+
+Sigue pendiente instalar este paquete 1.0.0 en un Mac limpio y comprobar el arranque tras iniciar sesión. Una prueba de una versión anterior o un runtime aislado en un Mac ya configurado no acredita esa condición.
+
 ## Límites de la beta
 
 - Servicio y automatismo USB en macOS; plugin de escritorio. USB sigue siendo el flujo principal.
