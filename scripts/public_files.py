@@ -54,6 +54,7 @@ plugin/tests/session.test.ts
 plugin/tests/updates.test.ts
 plugin/tests/installation.test.ts
 plugin/tests/connection.test.ts
+plugin/tests/api-recovery.test.ts
 plugin/tests/validation.test.ts
 plugin/tsconfig.json
 scripts/audit_public.py

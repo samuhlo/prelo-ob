@@ -55,6 +55,10 @@ const DEFAULTS: Settings = {
   frontmatter: "tipo: fuente_externa\nzona: cerebro\narea: media_consumo\nformato: subrayados\ntags: []\nrelacionadas: []",
 };
 
+class ServiceError extends Error {
+  constructor(readonly status: number, message: string) { super(message); }
+}
+
 export default class Prelo extends Plugin {
   state!: State;
   busy = false;
@@ -291,7 +295,14 @@ export default class Prelo extends Plugin {
       await this.api(`/v1/jobs/${id}/cancel`, {});
       new Notice("Cancelando la edición. Se detendrá al terminar la parte en curso.");
     } catch (error) {
-      new Notice(error instanceof Error ? error.message : String(error));
+      // A rejected cancellation is not proof that the job was cancelled or lost.
+      let absent = await this.releaseMissingJob(id, error);
+      if (!absent) {
+        try { await this.api(`/v1/jobs/${id}`); }
+        catch (lookupError) { absent = await this.releaseMissingJob(id, lookupError); }
+      }
+      new Notice(absent ? "El servidor confirma que el trabajo ya no existe. Puedes preparar otra edición." :
+        error instanceof Error ? error.message : String(error));
       return;
     }
     // Keep recovery available until the server confirms a terminal state.
@@ -450,7 +461,7 @@ export default class Prelo extends Plugin {
   async api(endpoint: string, body?: unknown, method?: string, candidate?: Connection) {
     const s = candidate ?? this.state.settings;
     if (!s.token) throw new Error("Añade la credencial del servicio en Ajustes → Prelo.");
-    validateConnection(s);
+    validateConnection({ serverUrl: s.serverUrl, token: s.token });
     const binary = body instanceof ArrayBuffer;
     const response = await requestUrl({
       url: s.serverUrl.replace(/\/$/, "") + endpoint,
@@ -461,14 +472,26 @@ export default class Prelo extends Plugin {
     if (response.status >= 400) {
       let message = `El servicio respondió ${response.status}.`;
       try { message = apiErrorMessage(response.status, response.json.detail); } catch {}
-      throw new Error(message);
+      throw new ServiceError(response.status, message);
     }
     return response;
+  }
+  private async releaseMissingJob(id: string, error: unknown): Promise<boolean> {
+    if (!(error instanceof ServiceError) || error.status !== 404) return false;
+    if (this.state.activeJob === id) {
+      this.state.activeJob = undefined;
+      await this.save();
+      this.notifySelection();
+    }
+    return true;
   }
   async awaitPublication(jobId: string, progress: (message: string) => void): Promise<Publication> {
     // Long editions are written in parts; wait up to an hour before handing off to the library.
     for (let attempt = 0; attempt < 1800; attempt++) {
-      const job = (await this.api(`/v1/jobs/${jobId}`)).json;
+      let response;
+      try { response = await this.api(`/v1/jobs/${jobId}`); }
+      catch (error) { await this.releaseMissingJob(jobId, error); throw error; }
+      const job = response.json;
       progress(job.message);
       if (["complete", "failed", "cancelled"].includes(job.state)) {
         this.state.activeJob = undefined; await this.save();
@@ -487,7 +510,7 @@ export default class Prelo extends Plugin {
     catch (error) {
       // Keep the identifier if the response was lost after the server accepted it.
       try { await this.api(`/v1/jobs/${id}`); }
-      catch { this.state.activeJob = undefined; await this.save(); }
+      catch (lookupError) { await this.releaseMissingJob(id, lookupError); }
       throw error;
     }
     return this.awaitPublication(id, progress);
