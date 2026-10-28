@@ -1,7 +1,7 @@
 {
   "id": "margen",
   "name": "Prelo",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "minAppVersion": "1.8.0",
   "description": "Convierte tus notas en publicaciones para Kobo y recupera tus subrayados.",
   "author": "Samu",

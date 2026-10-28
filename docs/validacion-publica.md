@@ -1,6 +1,6 @@
 # Aceptación de la candidata beta
 
-La candidata preparada es **1.0.0**. No se considera lista para anunciar únicamente porque sus pruebas automáticas pasen. El estado preciso está en [beta-acceptance.json](beta-acceptance.json).
+La versión preparada es **1.0.1**. No se considera lista para anunciar únicamente porque sus pruebas automáticas pasen. El estado preciso está en [beta-acceptance.json](beta-acceptance.json).
 
 ## Comprobaciones automáticas
 
@@ -17,7 +17,11 @@ Los tests de instalación inyectan fallos por etapa en fixtures. Los controles d
 3. Con Kobo físico: copiar publicaciones sintéticas, verificar importación y lectura, crear una cita, recuperar su nota y comprobar que una segunda importación no duplica ni borra comentarios. Retirar únicamente los libros sintéticos. Registrar el modelo/firmware de forma privada y publicar solo un resumen sin identificadores del dispositivo.
 4. Recuperar una biblioteca aislada con publicaciones, citas y un EPUB pendiente y servirla de nuevo. Diferenciar esta recuperación lógica de la recuperación completa de un Mac y de sus secretos.
 
-El workflow de publicación exige los resultados de esta versión y de la huella de sus archivos de producto. Solo para 1.0.0, el propietario ha dispensado expresamente la instalación en otro Mac limpio; se registra como `waived`, no como prueba superada. La excepción no cubre Obsidian, USB ni recuperación, no acepta otra versión o huella y no habilita publicar 0.11.0. Cambiar el producto invalida una aceptación anterior; `set_version.py` reinicia los estados al preparar otra versión. El archivo es un registro humano revisable, no una prueba de que las acciones físicas se hayan ejecutado.
+El workflow de publicación exige los resultados de esta versión y de la huella de sus archivos de producto. Las dispensas del propietario se registran como `waived`, no como pruebas superadas, y el workflow solo las admite para las versiones y comprobaciones que enumera: en 1.0.0, la instalación en otro Mac limpio; en 1.0.1, las cuatro comprobaciones manuales. Ninguna dispensa acepta otra versión o huella. Cambiar el producto invalida una aceptación anterior; `set_version.py` reinicia los estados al preparar otra versión. El archivo es un registro humano revisable, no una prueba de que las acciones físicas se hayan ejecutado.
+
+## Resultados de 1.0.1 (28 de octubre de 2026)
+
+1.0.1 cambia el logotipo, textos y detalles de la interfaz del plugin y la etiqueta de secciones de la portada. No cambia datos persistidos, identificadores, el conector USB, la importación de subrayados ni el formato de la biblioteca. El propietario ha dispensado expresamente las cuatro comprobaciones manuales para esta versión: ninguna se ha repetido ni se certifica para 1.0.1. Pasan las pruebas automáticas y la revisión visual se hizo en un Obsidian aislado con un vault de demostración. La última aceptación física es la de 1.0.0.
 
 ## Resultados de 1.0.0 (28 de octubre de 2026)
 
@@ -25,7 +29,7 @@ La cadena completa y sus correcciones están integradas en `main`. El CI remoto 
 
 El propietario confirmó la lectura de dos publicaciones sintéticas en un Kobo físico, incluida tabla e imagen JPEG plana. Se recuperaron cuatro subrayados en dos notas; repetir la importación no añadió duplicados ni alteró comentarios. Se retiraron solo los libros de prueba y la base del lector permaneció intacta durante las operaciones del conector. No se actualizó el servicio ni el vault habitual del propietario para esta aceptación.
 
-No se ha instalado este paquete 1.0.0 en otro Mac limpio ni comprobado allí el arranque tras iniciar sesión. El propietario ha descartado esa condición para publicar esta beta, destinada principalmente a su uso personal. Una prueba de una versión anterior o un runtime aislado en un Mac ya configurado no acredita esa condición. `check_beta.py` mantiene el diagnóstico estricto; el workflow aplica únicamente la excepción documentada de 1.0.0.
+No se ha instalado este paquete 1.0.0 en otro Mac limpio ni comprobado allí el arranque tras iniciar sesión. El propietario ha descartado esa condición para publicar esta beta, destinada principalmente a su uso personal. Una prueba de una versión anterior o un runtime aislado en un Mac ya configurado no acredita esa condición. `check_beta.py` mantiene el diagnóstico estricto; el workflow aplica únicamente las dispensas documentadas.
 
 ## Límites de la beta
 

@@ -78,3 +78,23 @@ def test_release_allows_only_the_documented_clean_install_waiver(tmp_path, monke
     record['product_sha256']=product_digest(tmp_path);save()
     (tmp_path/'server/margen/app.py').write_text('# Changed after acceptance')
     with pytest.raises(SystemExit):exec(compile(release_gate_source(),'release_acceptance','exec'),{})
+
+
+def test_release_allows_the_documented_full_waiver_only_for_1_0_1(tmp_path, monkeypatch):
+    import pytest
+    record=fixture(tmp_path)
+    for item in record['checks'].values():item.update(status='waived',approved_by='owner')
+    def publish(version):
+        record['version']=version
+        (tmp_path/'manifest.json').write_text(json.dumps({'version':version}))
+        record['product_sha256']=product_digest(tmp_path)
+        (tmp_path/'docs/beta-acceptance.json').write_text(json.dumps(record))
+        exec(compile(release_gate_source(),'release_acceptance','exec'),{})
+    monkeypatch.chdir(tmp_path)
+    publish('1.0.1')
+    # The same waivers neither carry over to 1.0.0's narrower exception nor to later versions.
+    for version in ['1.0.0','1.0.2']:
+        with pytest.raises(SystemExit):publish(version)
+    record['checks']['usb_roundtrip'].pop('approved_by')
+    with pytest.raises(SystemExit):publish('1.0.1')
+

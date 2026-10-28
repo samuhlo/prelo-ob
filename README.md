@@ -117,7 +117,7 @@ Generar una Revista 90's consume la cuota de tu Codex: con N notas se crean N + 
 
 ## // 04_ INSTALAR
 
-**Distribución beta.** Consulta las versiones publicadas y sus paquetes de Mac/plugin en [Releases](https://github.com/samuhlo/prelo-ob/releases). La candidata 1.0.0 está sujeta a las [comprobaciones de aceptación](docs/validacion-publica.md).
+**Distribución beta.** Consulta las versiones publicadas y sus paquetes de Mac/plugin en [Releases](https://github.com/samuhlo/prelo-ob/releases). El estado de las comprobaciones de cada versión está en [Aceptación de la beta](docs/validacion-publica.md).
 
 Prelo tiene dos piezas: un servicio en el Mac que genera las publicaciones y gestiona el Kobo, y un plugin de Obsidian que puede usarse desde Mac, Windows o Linux.
 
