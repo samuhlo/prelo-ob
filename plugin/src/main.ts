@@ -419,7 +419,7 @@ export default class Prelo extends Plugin {
   private async reloadAfterUpdate(version: string, transaction: UpdateTransaction) {
     const registry: unknown = Reflect.get(this.app, "plugins");
     if (!isPluginRegistry(registry)) {
-      await transaction.commit();
+      // Activation has not happened; retain the journal across the restart.
       return void new Notice(`Prelo ${version} instalado. Reinicia Obsidian para usarlo.`, 0);
     }
     const id = this.manifest.id;

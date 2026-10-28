@@ -170,3 +170,16 @@ lo originó. Conecta de nuevo el Kobo, revisa su inventario y solicita otra vez 
 puedes descartar el aviso antiguo en «Próxima conexión». Ninguna retirada se reasigna
 por coincidencia de ruta o de archivos. Actualiza servicio y conector juntos, sin una
 copia USB activa. Los nombres de ediciones y las claves de citas no cambian.
+
+### Recuperación de una actualización del plugin
+
+`.prelo-update/pending.json` se conserva hasta confirmar la activación. Que los tres
+archivos coincidan con la descarga solo confirma su escritura. Una reversión registra
+su fase antes de restaurar y restaura `main.js` al final para conservar el código de
+recuperación durante una interrupción. Si Obsidian no permite activar desde el plugin,
+reinícialo; el registro puede permanecer hasta la siguiente actualización explícita.
+
+El instalador manual comparte ese registro: recupera primero una sustitución parcial,
+registra su propio conjunto de archivos y retira la señal anterior solo al completar la
+instalación. Cierra Obsidian antes de usarlo. Una reversión incompleta conserva su señal
+para el siguiente arranque o reintento; no borres `.prelo-update` para forzar el proceso.

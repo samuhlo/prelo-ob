@@ -135,3 +135,48 @@ def test_build_context_files_get_fresh_timestamps(tmp_path):
     os.utime(source, (1767225600, 1767225600))
     installer.fresh_build_context(tmp_path / "server")
     assert source.stat().st_mtime > 1767225600
+
+
+def test_manual_install_supersedes_pending_auto_update(fixture):
+    import hashlib
+    root, vault = fixture
+    target = plugin_install(vault, root=root)
+    pending = target / '.prelo-update'
+    pending.mkdir(exist_ok=True)
+    names = ['main.js', 'styles.css', 'manifest.json']
+    for name in names:
+        (pending/name).write_bytes((target/name).read_bytes())
+    expected = {name: hashlib.sha256((target/name).read_bytes()).hexdigest() for name in names}
+    (pending/'pending.json').write_text(json.dumps(expected))
+    (root/'dist/margen/main.js').write_text('/* later manual version */')
+    plugin_install(vault, root=root)
+    assert (target/'main.js').read_text() == '/* later manual version */'
+    assert not (pending/'pending.json').exists(), 'An abandoned auto-update would undo this manual installation on startup'
+
+
+@pytest.mark.parametrize('interrupted_restore', [False, True])
+def test_partial_manual_install_recovers_without_losing_auto_journal(fixture, monkeypatch, interrupted_restore):
+    import install_plugin
+    root, vault = fixture
+    target = plugin_install(vault, root=root)
+    before = {name: (target/name).read_bytes() for name in install_plugin.PLUGIN_FILES}
+    (root/'dist/margen/main.js').write_text('/* manual new entry */')
+    writer = install_plugin.write_private
+    failed = False
+    def fail(path, content, **kwargs):
+        nonlocal failed
+        if path == target/'styles.css' and (not failed or interrupted_restore):
+            failed = True
+            raise OSError('Synthetic manual write failure')
+        return writer(path, content, **kwargs)
+    monkeypatch.setattr(install_plugin, 'write_private', fail)
+    with pytest.raises(OSError, match='Synthetic'):
+        plugin_install(vault, root=root)
+    monkeypatch.setattr(install_plugin, 'write_private', writer)
+    if interrupted_restore:
+        assert (target/'.prelo-update/pending.json').exists()
+        assert (target/'main.js').read_text() == '/* manual new entry */'
+        install_plugin.recover_plugin_update(target)
+    for name, content in before.items():
+        assert (target/name).read_bytes() == content
+    assert not (target/'.prelo-update/pending.json').exists()

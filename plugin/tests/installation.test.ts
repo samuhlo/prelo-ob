@@ -45,3 +45,19 @@ test("a complete installation survives startup and can be committed", async () =
   await tx.commit();
   for (const name of names) assert.equal(await fs.readFile(path.join(directory, name), "utf8"), "new:" + name);
 }));
+
+test("failed activation keeps its journal when rollback is interrupted, including the entry file", async () => fixture(async directory => {
+  const tx = await installPluginFiles(directory, files);
+  assert.equal(await recoverPluginUpdate(directory), false);
+  const rename = fs.rename;
+  fs.rename = async (source, target) => {
+    if (target === path.join(directory, "styles.css")) throw new Error("Synthetic rollback interruption");
+    return rename(source, target);
+  };
+  try { await assert.rejects(tx.rollback(), /rollback interruption/); }
+  finally { fs.rename = rename; }
+  assert.equal(await fs.readFile(path.join(directory, "main.js"), "utf8"), "new:main.js",
+    "Keep the recovery-capable entry until the other files are restored");
+  assert.equal(await recoverPluginUpdate(directory), true);
+  for (const name of names) assert.equal(await fs.readFile(path.join(directory, name), "utf8"), "old:" + name);
+}));
