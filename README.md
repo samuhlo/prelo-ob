@@ -6,7 +6,7 @@
 
 Prelo convierte una selección de notas de Obsidian en una publicación EPUB para Kobo. Preparas la lectura, la dejas en la cola y, cuando conectas el lector por USB al Mac, el conector recoge las anotaciones y entrega las publicaciones pendientes. Los subrayados vuelven al vault con enlaces a sus notas de origen.
 
-**Distribución beta.** Consulta las versiones publicadas y sus paquetes de Mac/plugin en [Releases](https://github.com/samuhlo/prelo-ob/releases). La candidata 0.11.0 está sujeta a las [comprobaciones de aceptación](docs/validacion-publica.md).
+**Distribución beta.** Consulta las versiones publicadas y sus paquetes de Mac/plugin en [Releases](https://github.com/samuhlo/prelo-ob/releases). La candidata 1.0.0 está sujeta a las [comprobaciones de aceptación](docs/validacion-publica.md).
 
 ## Instalar
 

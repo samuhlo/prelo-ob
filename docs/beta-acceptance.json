@@ -1,26 +1,26 @@
 {
-  "version": "0.11.0",
-  "product_sha256": "77652a04277e3884628af3f55cd6821d07789fea4b0225aedad5a0036a3d58b2",
+  "version": "1.0.0",
+  "product_sha256": "0a66f697cbaa777a6804dfac13cefc69d5ed205e0176b932312abc6247940779",
   "checks": {
     "clean_mac_install": {
       "status": "pending",
       "date": "",
-      "summary": "Instalación limpia en otro Mac pendiente. Las pruebas automáticas usan fixtures y Docker/launchd simulados."
+      "summary": "Revalidar para esta versión."
     },
     "obsidian_upgrade": {
       "status": "pending",
       "date": "",
-      "summary": "Prueba interactiva de instalación/recarga en Obsidian pendiente. Existen regresiones de escritura interrumpida y restauración."
+      "summary": "Revalidar para esta versión."
     },
     "usb_roundtrip": {
-      "status": "passed",
-      "date": "2026-10-26",
-      "summary": "Kobo físico por USB: dos publicaciones sintéticas importadas y leídas; dos citas recogidas; segunda importación sin duplicados y comentario conservado; solo los dos libros de prueba retirados; base del lector sin cambios durante el worker. El propietario confirmó lectura de estudio y retro."
+      "status": "pending",
+      "date": "",
+      "summary": "Revalidar para esta versión."
     },
     "backup_recovery": {
-      "status": "passed",
-      "date": "2026-10-26",
-      "summary": "Servicio 0.11.0 arrancado en contenedor sin red y volumen temporal gestionado; backup restaurado en otro volumen y servido por un segundo contenedor. Dos ediciones, una anotación y un EPUB pendiente íntegro. No certifica recuperación completa de un Mac."
+      "status": "pending",
+      "date": "",
+      "summary": "Revalidar para esta versión."
     }
   }
 }

@@ -163,6 +163,7 @@ Los adjuntos admiten hasta 20 megapíxeles y 20.000 píxeles por lado, con 80 me
 
 El conector identifica el Kobo con un hash de su número de serie (primer campo de
 `.kobo/version`), sin incluir el firmware ni guardar el número de serie en claro.
+La separación de serie y firmware coincide con el [driver Kobo de Calibre](https://github.com/kovidgoyal/calibre/blob/master/src/calibre/devices/kobo/driver.py#L186).
 Un lector sin ese dato requiere revisar sus metadatos; la ruta de montaje no lo sustituye.
 Las órdenes pendientes o en ejecución con el hash antiguo de 20 caracteres pasan a
 fallidas, conservando su destino y contenido. Ese hash no permite demostrar qué serie
