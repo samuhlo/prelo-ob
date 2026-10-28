@@ -276,8 +276,8 @@ export default class Prelo extends Plugin {
     finally { this.sharingParked = undefined; }
   }
   private async flushParked() {
-    for (const parked of this.localComposers()) {
-      if (!this.localComposers().includes(parked)) continue;
+    while (this.localComposers().length) {
+      const parked = this.localComposers()[0];
       await this.api("/v1/drafts", draftFromComposer(parked, parked.draftId!));
       // An acknowledgement for an older revision must never remove a newer local one.
       this.removeParkedDraft(parked.draftId!, parked);
