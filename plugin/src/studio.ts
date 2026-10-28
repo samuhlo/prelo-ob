@@ -27,7 +27,7 @@ type Library = {
   version?: string;
   issues?: { edition: string; kind: string }[];
   publications: Publication[];
-  device: { state: string; message: string; heartbeat_at?: string; last_sync?: { at: string; added: number; sent: number } };
+  device: { state: string; message: string; version?: string; heartbeat_at?: string; last_sync?: { at: string; added: number; sent: number } };
   storage: { used_bytes: number; limit_bytes: number };
   jobs: { id: string; state: string; message: string; updated_at: string }[];
 };
@@ -56,6 +56,7 @@ export class StudioView extends ItemView {
   private drafts: Draft[] = [];
   private aiAvailable = false;
   private imagesAvailable = false;
+  private bridgeVersion?: string;
   private connection = "Conectando con tu biblioteca…";
   private error = "";
   private closed = false;
@@ -137,6 +138,7 @@ export class StudioView extends ItemView {
       this.kobo = kobo;
       this.aiAvailable = !!status.json.ai_available;
       this.imagesAvailable = !!status.json.image_generation_available;
+      this.bridgeVersion = status.json.bridge_version;
       this.connection = "Biblioteca conectada";
       this.error = "";
       const current = this.library.jobs.find(j => j.id === this.plugin.state.activeJob);
@@ -198,6 +200,9 @@ export class StudioView extends ItemView {
     const update = this.plugin.update;
     const server = this.library?.version;
     if (server) this.plugin.serverVersion = server;
+    for (const [name, version] of [["conector USB", this.library?.device.version], ["puente de IA", this.bridgeVersion]])
+      if (server && version && compareVersions(server, version) === 1)
+        notice.createEl("p", { text: `El ${name} usa ${version}; actualiza los conectores del Mac junto al servicio (${server}).` });
     if (update) {
       notice.createEl("p", { text: `Prelo ${update.version}${update.beta ? " (beta)" : ""} disponible · tienes ${this.plugin.manifest.version} en este equipo.` });
       button(notice, "Actualizar ahora", () => void this.plugin.installUpdate(), "download");
@@ -650,7 +655,7 @@ export class StudioView extends ItemView {
     if (this.kobo) button(deviceActions, "Enviar un EPUB", () => this.pickEpub(), "upload");
 
     const queued = (this.library?.publications || []).filter(p => ["queued", "transferring"].includes(p.delivery || ""));
-    const orders = (this.kobo?.commands || []).filter(c => ["pending", "executing"].includes(c.state) || c.state === "failed" && (!this.kobo?.at || (c.done_at ?? "") > this.kobo.at));
+    const orders = (this.kobo?.commands || []).filter(c => ["pending", "executing", "failed"].includes(c.state));
     this.page!.createEl("h2", { text: "Próxima conexión" });
     if (!queued.length && !orders.length)
       this.page!.createEl("p", { cls: "margen-hint margen-inline-empty", text: "No hay nada pendiente. Envía una revista desde la biblioteca o un EPUB desde aquí; no necesitas tener el Kobo conectado." });
@@ -663,8 +668,8 @@ export class StudioView extends ItemView {
       for (const order of orders) {
         const row = list.createDiv({ cls: `margen-order-row${order.state === "failed" ? " is-failed" : ""}` });
         setIcon(row.createSpan(), order.kind === "remove" ? "trash-2" : "upload");
-        row.createSpan({ text: commandLabel(order) });
-        if (order.state === "pending") iconButton(row, "x", "Cancelar este cambio", () => void this.plugin.run(async () => {
+        row.createSpan({ text: commandLabel(order) + (order.device && order.device !== this.kobo?.device ? " · otro lector" : "") });
+        if (["pending", "failed"].includes(order.state)) iconButton(row, "x", order.state === "failed" ? "Descartar este fallo" : "Cancelar este cambio", () => void this.plugin.run(async () => {
           await this.plugin.api(`/v1/kobo/commands/${order.id}`, undefined, "DELETE");
           await this.refresh(true);
         }));

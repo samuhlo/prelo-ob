@@ -1,6 +1,6 @@
 [project]
 name = "margen-server"
-version = "0.10.1"
+version = "1.0.0"
 description = "De notas a publicaciones, con un camino de vuelta."
 requires-python = ">=3.11"
 dependencies = [

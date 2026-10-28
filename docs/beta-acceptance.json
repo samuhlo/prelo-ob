@@ -1,0 +1,26 @@
+{
+  "version": "1.0.0",
+  "product_sha256": "0a66f697cbaa777a6804dfac13cefc69d5ed205e0176b932312abc6247940779",
+  "checks": {
+    "clean_mac_install": {
+      "status": "pending",
+      "date": "",
+      "summary": "Revalidar para esta versión."
+    },
+    "obsidian_upgrade": {
+      "status": "pending",
+      "date": "",
+      "summary": "Revalidar para esta versión."
+    },
+    "usb_roundtrip": {
+      "status": "pending",
+      "date": "",
+      "summary": "Revalidar para esta versión."
+    },
+    "backup_recovery": {
+      "status": "pending",
+      "date": "",
+      "summary": "Revalidar para esta versión."
+    }
+  }
+}
