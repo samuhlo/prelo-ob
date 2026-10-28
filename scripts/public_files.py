@@ -97,6 +97,7 @@ server/margen/prompts.py
 server/pyproject.toml
 server/requirements.lock
 server/tests/test_command_safety.py
+server/tests/test_reader_identity.py
 server/tests/test_editorial_integrity.py
 server/tests/test_editorial_boundaries.py
 server/tests/test_editorial_modes.py

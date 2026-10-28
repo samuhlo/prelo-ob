@@ -158,3 +158,15 @@ Este procedimiento corresponde al instalador público (`prelo`). Las instalacion
 Desde una versión anterior a 0.11, instala esta candidata con el paquete completo/BRAT o con copia manual del plugin y Obsidian cerrado: la versión antigua todavía no incorpora la nueva recuperación del autoactualizador. Actualiza también el conector USB antes de solicitar retiradas; las órdenes anteriores sin un lector identificado quedan pendientes de revisión, no se ejecutan por su cuenta.
 
 Los adjuntos admiten hasta 20 megapíxeles y 20.000 píxeles por lado, con 80 megapíxeles por edición, además del límite de bytes. La cuota de biblioteca controla EPUB e imágenes; catálogo/procedencia, copias privadas del instalador y archivos nativos del Mac tienen un alcance distinto. Conserva espacio libre para las copias y la recuperación.
+
+### Identidad del lector al actualizar a 1.0 beta
+
+El conector identifica el Kobo con un hash de su número de serie (primer campo de
+`.kobo/version`), sin incluir el firmware ni guardar el número de serie en claro.
+Un lector sin ese dato requiere revisar sus metadatos; la ruta de montaje no lo sustituye.
+Las órdenes pendientes o en ejecución con el hash antiguo de 20 caracteres pasan a
+fallidas, conservando su destino y contenido. Ese hash no permite demostrar qué serie
+lo originó. Conecta de nuevo el Kobo, revisa su inventario y solicita otra vez los cambios;
+puedes descartar el aviso antiguo en «Próxima conexión». Ninguna retirada se reasigna
+por coincidencia de ruta o de archivos. Actualiza servicio y conector juntos, sin una
+copia USB activa. Los nombres de ediciones y las claves de citas no cambian.

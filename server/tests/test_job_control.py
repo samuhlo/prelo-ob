@@ -98,3 +98,8 @@ def test_rejected_executor_releases_admission_even_if_failure_cannot_be_saved(tm
     assert not jobs.ACTIVE
     assert not jobs.CANCELLED
     assert jobs.read(tmp_path, identity)['state'] == 'failed'
+
+
+def test_new_receipt_supersedes_absence_in_an_older_inventory():
+    record = {'id': 'a', 'delivery': 'sent', 'delivered_at': '2026-03-01'}
+    assert library.on_kobo(record, {'a': {'present': False}}, {'at': '2026-02-01'}) == 'copied'

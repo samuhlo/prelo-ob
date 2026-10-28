@@ -53,7 +53,9 @@ def row(record):
 
 def listing(root):
     with database(root) as db:
-        return [row(r) for r in db.execute("SELECT * FROM kobo_commands ORDER BY created_at DESC LIMIT 100")]
+        return [{**row(r), "device": r["device"]} for r in db.execute(
+            """SELECT c.*,t.device FROM kobo_commands c LEFT JOIN kobo_command_targets t ON c.id=t.id
+               ORDER BY CASE WHEN c.state IN ('pending','executing','failed') THEN 0 ELSE 1 END, c.created_at DESC""")]
 
 
 def pending(root, device=""):

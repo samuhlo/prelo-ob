@@ -24,6 +24,18 @@ def digest(value):
     return hashlib.sha256(value.encode() if isinstance(value, str) else value).hexdigest()
 
 
+def reader_identity(mount):
+    # Kobo's first comma-separated version field is its serial; firmware is mutable.
+    # Missing metadata is not evidence that two mounts are the same reader.
+    try:
+        serial = (mount / ".kobo/version").read_text(encoding="utf-8-sig").split(",")[0].strip()
+    except (OSError, UnicodeError):
+        serial = ""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", serial):
+        raise ValueError("No se puede identificar este Kobo. Revisa .kobo/version antes de solicitar cambios.")
+    return "serial-" + digest(serial)[:20]
+
+
 def stamp():
     return datetime.now(timezone.utc).isoformat()
 
@@ -164,7 +176,7 @@ def read_books(mount):
                       "title": string(row.get("Title"))[:300], "author": string(row.get("Attribution"))[:300],
                       "percent": percent, "last_read": string(row.get("DateLastRead"))[:40],
                       "status": string(row.get("ReadStatus"))[:10],
-                      "present": bool(path) and ".." not in path.split("/") and (mount / path).is_file(),
+                      "present": (".." not in path.split("/") and (mount / path).is_file()) if path else None,
                       "sha256": book_checksum(mount, path) if path and ".." not in path.split("/") else ""})
     waiting = sorted(m[1] for f in mount.glob("margen-*.epub") if (m := EDITION_FILE.fullmatch(f.name)) and m[1] not in imported)
     return {"books": books, "unimported": waiting}
@@ -358,8 +370,7 @@ class Worker:
     def synchronize(self, mount):
         with (self.state / "usb.lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            version = mount / ".kobo/version"
-            device = digest(version.read_bytes() if version.is_file() else str(mount))[:20]
+            device = reader_identity(mount)
             self.report("working", "Recogiendo subrayados del Kobo.", device)
             # Taken before copying: it shows what the reader imported after the previous connection.
             self.api("/v1/device/inventory", {"device": device, **read_books(mount)})
@@ -479,7 +490,7 @@ class Worker:
                 else:
                     mount = mounts[0]
                     state = self.api("/v1/device")
-                    pending = self.api("/v1/deliveries") or self.api("/v1/kobo/commands?device=" + quote(digest((mount / ".kobo/version").read_bytes() if (mount / ".kobo/version").is_file() else str(mount))[:20]))
+                    pending = self.api("/v1/deliveries") or self.api("/v1/kobo/commands?device=" + quote(reader_identity(mount)))
                     if seen != str(mount) or state["request"] != request_id or pending:
                         self.synchronize(mount)
                         seen = str(mount)

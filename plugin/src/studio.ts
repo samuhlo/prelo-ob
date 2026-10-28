@@ -655,7 +655,7 @@ export class StudioView extends ItemView {
     if (this.kobo) button(deviceActions, "Enviar un EPUB", () => this.pickEpub(), "upload");
 
     const queued = (this.library?.publications || []).filter(p => ["queued", "transferring"].includes(p.delivery || ""));
-    const orders = (this.kobo?.commands || []).filter(c => ["pending", "executing"].includes(c.state) || c.state === "failed" && (!this.kobo?.at || (c.done_at ?? "") > this.kobo.at));
+    const orders = (this.kobo?.commands || []).filter(c => ["pending", "executing", "failed"].includes(c.state));
     this.page!.createEl("h2", { text: "Próxima conexión" });
     if (!queued.length && !orders.length)
       this.page!.createEl("p", { cls: "margen-hint margen-inline-empty", text: "No hay nada pendiente. Envía una revista desde la biblioteca o un EPUB desde aquí; no necesitas tener el Kobo conectado." });
@@ -668,8 +668,8 @@ export class StudioView extends ItemView {
       for (const order of orders) {
         const row = list.createDiv({ cls: `margen-order-row${order.state === "failed" ? " is-failed" : ""}` });
         setIcon(row.createSpan(), order.kind === "remove" ? "trash-2" : "upload");
-        row.createSpan({ text: commandLabel(order) });
-        if (order.state === "pending") iconButton(row, "x", "Cancelar este cambio", () => void this.plugin.run(async () => {
+        row.createSpan({ text: commandLabel(order) + (order.device && order.device !== this.kobo?.device ? " · otro lector" : "") });
+        if (["pending", "failed"].includes(order.state)) iconButton(row, "x", order.state === "failed" ? "Descartar este fallo" : "Cancelar este cambio", () => void this.plugin.run(async () => {
           await this.plugin.api(`/v1/kobo/commands/${order.id}`, undefined, "DELETE");
           await this.refresh(true);
         }));

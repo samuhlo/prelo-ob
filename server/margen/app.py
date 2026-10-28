@@ -361,7 +361,7 @@ class KoboBook(BaseModel):
     percent: int = Field(default=0, ge=0, le=100)
     last_read: str = Field(default="", max_length=40)
     status: str = Field(default="", max_length=10)
-    present: bool = False
+    present: bool | None = None
     sha256: str = Field(default="", pattern=r"^([a-f0-9]{64})?$")
 
 
