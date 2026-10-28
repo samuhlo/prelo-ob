@@ -296,11 +296,9 @@ export default class Prelo extends Plugin {
       new Notice("Cancelando la edición. Se detendrá al terminar la parte en curso.");
     } catch (error) {
       // A rejected cancellation is not proof that the job was cancelled or lost.
-      let absent = await this.releaseMissingJob(id, error);
-      if (!absent) {
-        try { await this.api(`/v1/jobs/${id}`); }
-        catch (lookupError) { absent = await this.releaseMissingJob(id, lookupError); }
-      }
+      let absent = false;
+      try { await this.api(`/v1/jobs/${id}`); }
+      catch (lookupError) { absent = await this.releaseMissingJob(id, lookupError); }
       new Notice(absent ? "El servidor confirma que el trabajo ya no existe. Puedes preparar otra edición." :
         error instanceof Error ? error.message : String(error));
       return;

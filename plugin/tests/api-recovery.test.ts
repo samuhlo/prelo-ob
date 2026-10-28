@@ -58,3 +58,12 @@ for (const folder of ["", "../outside"]) test(`library API does not require expo
   assert.equal(calls, 1);
   await assert.rejects(plugin.ensureFolder(folder));
 });
+
+test("404 from a cancellation endpoint does not prove the job is missing", async () => {
+  const { plugin, notices } = subject(async ({ url }) => url.endsWith('/cancel')
+    ? { status: 404, json: { detail: 'Endpoint unavailable' } }
+    : { status: 200, json: { state: 'running' } });
+  await plugin.cancelJob();
+  assert.equal(plugin.state.activeJob, 'missing');
+  assert.ok(notices.every(n => !n.includes('ya no existe') && !n.startsWith('Cancelando')));
+});
