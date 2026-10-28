@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import httpx
 from pydantic import BaseModel, ValidationError
+from .epub import MD, clean_markdown
 from .jobs import Cancelled
 from .models import EditorialPlan, Chapter, PublicationRequest, Outline, WrittenPart, EditedArticle
 from .prompts import PROMPT_VERSION, outline_instructions, write_instructions
@@ -202,7 +203,7 @@ TOKEN = re.compile(r"margen-asset:[\w-]+|(?<![\w])[-+]?\d+(?:[.,:/]\d+)*|`[^`\n]
 
 def required_tokens(source: str) -> set[str]:
     """Literal items a faithful rewrite or translation must keep: data, code and images."""
-    assets = set(re.findall(r"margen-asset:[\w-]+", source))
+    assets = asset_references(source)
     # List numbering is formatting; values in prose, tables and code are data.
     source = re.sub(r"^([ \t]*)\d+[.)] +", r"\1", source, flags=re.M)
     # The H1 repeats the article title, which the layout already shows.
@@ -214,23 +215,29 @@ def required_tokens(source: str) -> set[str]:
     # a PDF and may become a translated table, so only their data is required.
     for block in re.findall(r"```[ \t]*[\w+-]+[^\n]*\n(.*?)```", source, re.S):
         tokens.update(" ".join(line.split()) for line in block.splitlines() if len(line.strip()) >= 4)
-    return {t for t in tokens if t} | assets
+    return {t for t in tokens if t and not t.startswith("margen-asset:")} | assets
 
 
 def missing_tokens(source: str, written: str) -> list[str]:
     flat = " ".join(written.split())
     # Use the same tokenizer on both sides: a literal always matches itself,
     # and the sign belongs to the value, so 5 cannot match -5.
-    literals = set(TOKEN.findall(flat))
-    assets = set(re.findall(r"margen-asset:[\w-]+", flat))
+    literals = {t.strip("`") for t in TOKEN.findall(flat)}
+    assets = asset_references(written)
     return sorted(t for t in required_tokens(source) if not (
         t in assets if t.startswith("margen-asset:") else
         t in literals if re.fullmatch(r"[-+]?\d+(?:[.,:/]\d+)*", t) else t in flat))
 
 
+def asset_references(markdown: str) -> set[str]:
+    # Use the renderer's parser: only image destinations, with the entire src.
+    return {child.attrGet("src") for token in MD.parse(clean_markdown(markdown))
+            for child in token.children or [] if child.type == "image"
+            and (child.attrGet("src") or "").startswith("margen-asset:")}
+
+
 def missing_assets(source: str, written: str) -> list[str]:
-    return sorted(set(re.findall(r"margen-asset:[\w-]+", source)) -
-                  set(re.findall(r"margen-asset:[\w-]+", written)))
+    return sorted(asset_references(source) - asset_references(written))
 
 
 def make_outline(request: PublicationRequest, cache: Cache):

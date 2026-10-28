@@ -56,3 +56,21 @@ def test_review_cannot_replace_image_with_id_prefix(monkeypatch):
     assert "<img" in original
     with pytest.raises(ValueError, match="No se ha publicado"):
         editor.plan_publication(request)
+
+
+@pytest.mark.parametrize('source', [
+    'Valor `-5`.', 'Valor `+5`.', 'Puerto `8080`.', 'Versión v1.2.3; eth0.1.',
+    'Servidor http://127.0.0.1:8080/ruta/42.', 'IPv6: 2001:db8::1.',
+    'Valores: -5, +5, 1.25 y 3/4; 2026-10-28.',
+])
+def test_literal_guard_is_reflexive_in_code_and_prose(source):
+    assert editor.missing_tokens(source, source) == []
+
+
+@pytest.mark.parametrize('written', [
+    '![Esquema](margen-asset:asset1.png)', '![Esquema](margen-asset:asset1#fragment)',
+    '![Esquema](margen-asset:asset1/extra)', 'La imagen era margen-asset:asset1.',
+])
+def test_asset_guard_matches_the_renderers_whole_image_destination(written):
+    source = '![Esquema](margen-asset:asset1)'
+    assert editor.missing_assets(source, written) == ['margen-asset:asset1']
