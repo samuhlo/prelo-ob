@@ -3,28 +3,28 @@
   "product_sha256": "c6ad109803fc67f2a65a5db1e1ca2e9d5af648459a44f4ad4583df7c48a50e99",
   "checks": {
     "clean_mac_install": {
-      "status": "waived",
+      "status": "passed",
       "date": "2026-10-28",
-      "summary": "El propietario dispensa expresamente la instalación de 1.0.1 en otro Mac limpio. No se ha realizado ni se certifica esa prueba para esta versión.",
-      "approved_by": "owner"
+      "summary": "El propietario confirma que realizó la instalación del paquete en otro Mac limpio con 1.0.1 y que se superó.",
+      "confirmed_by": "owner"
     },
     "obsidian_upgrade": {
-      "status": "waived",
+      "status": "passed",
       "date": "2026-10-28",
-      "summary": "El propietario dispensa expresamente la actualización 1.0.0 → 1.0.1 en Obsidian real. 1.0.1 cambia logotipo, textos de la interfaz y la etiqueta de secciones de la portada; no cambia datos persistidos, identificadores ni el mecanismo de actualización. Pruebas automáticas y revisión visual en un Obsidian aislado con vault de demostración; no certifican la actualización.",
-      "approved_by": "owner"
+      "summary": "El propietario confirma que realizó la actualización 1.0.0 → 1.0.1 en Obsidian real con 1.0.1 y que se superó.",
+      "confirmed_by": "owner"
     },
     "usb_roundtrip": {
-      "status": "waived",
+      "status": "passed",
       "date": "2026-10-28",
-      "summary": "El propietario dispensa expresamente la ida y vuelta USB con Kobo físico para 1.0.1. El conector USB y la importación de subrayados no cambian respecto a 1.0.0, aceptada el 28/10/2026; la portada de Revista 90's sí cambia de texto. No se certifica una prueba física de esta versión.",
-      "approved_by": "owner"
+      "summary": "El propietario confirma que realizó la ida y vuelta USB con Kobo físico con 1.0.1 y que se superó.",
+      "confirmed_by": "owner"
     },
     "backup_recovery": {
-      "status": "waived",
+      "status": "passed",
       "date": "2026-10-28",
-      "summary": "El propietario dispensa expresamente la recuperación de biblioteca para 1.0.1. El formato de la biblioteca y de las copias no cambia respecto a 1.0.0. No se certifica una recuperación de esta versión.",
-      "approved_by": "owner"
+      "summary": "El propietario confirma que realizó la recuperación de biblioteca con 1.0.1 y que se superó.",
+      "confirmed_by": "owner"
     }
   }
 }

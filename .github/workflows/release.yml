@@ -41,8 +41,7 @@ jobs:
           errors = check(root)
           # Owner-authorized exceptions for this personal beta only, per version.
           # The version match and the product fingerprint always remain required.
-          WAIVERS = {'1.0.0': {'clean_mac_install'},
-                     '1.0.1': {'clean_mac_install', 'obsidian_upgrade', 'usb_roundtrip', 'backup_recovery'}}
+          WAIVERS = {'1.0.0': {'clean_mac_install'}}
           allowed = WAIVERS.get(record.get('version'), set())
           def approved(name):
               item = record.get('checks', {}).get(name, {})
