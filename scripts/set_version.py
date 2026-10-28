@@ -26,6 +26,15 @@ def set_version(version, root=ROOT):
         (root / 'server/pyproject.toml').read_text(), count=1, flags=re.M)
     updates['server/uv.lock'] = re.sub(r'(name = "margen-server"\nversion = ")[^"]+',
         lambda m: m[1] + version, (root / 'server/uv.lock').read_text(), count=1)
+    acceptance = root / "docs/beta-acceptance.json"
+    if acceptance.exists():
+        value = json.loads(acceptance.read_text())
+        if value.get("version") != version:
+            value["version"] = version
+            value["product_sha256"] = ""
+            for item in value.get("checks", {}).values():
+                item.update(status="pending", date="", summary="Revalidar para esta versión.")
+            updates["docs/beta-acceptance.json"] = json.dumps(value, ensure_ascii=False, indent=2) + "\n"
     for name, content in updates.items():
         (root / name).write_text(content)
 

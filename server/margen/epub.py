@@ -111,7 +111,7 @@ def retro_image(raw: bytes, media_type: str):
         factor = min(4, -(-PIXEL_WIDTH // picture.width))
         picture = picture.resize((picture.width * factor, picture.height * factor), Image.NEAREST)
     elif picture.width > SCREEN_WIDTH:
-        picture = picture.resize((SCREEN_WIDTH, round(picture.height * SCREEN_WIDTH / picture.width)), Image.LANCZOS)
+        picture = picture.resize((SCREEN_WIDTH, max(1, round(picture.height * SCREEN_WIDTH / picture.width))), Image.LANCZOS)
     mat, bevel = frame_sizes(picture.width)
     edge = mat + bevel
     framed = Image.new("RGB", (picture.width + 2 * edge, picture.height + 2 * edge), "#fffdf7")

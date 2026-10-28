@@ -15,9 +15,9 @@ const code = buildSync({
   external: ["obsidian", "electron"], loader: { ".svg": "text", ".wasm": "binary" },
 }).outputFiles[0].text;
 const require = createRequire(import.meta.url);
-type Saved = { composer: Composer; parked?: Composer; parkedDrafts?: Composer[] };
+type Saved = { activeJob?: string; composer: Composer; parked?: Composer; parkedDrafts?: Composer[] };
 type Subject = {
-  state: Saved; app: unknown;
+  state: Saved; app: unknown; busy: boolean; cancelJob: () => Promise<void>;
   saveData: (value: Saved) => Promise<void>;
   api: (route: string, body?: Draft) => Promise<unknown>;
   parkComposer: (announce?: boolean) => Promise<void>;
@@ -106,7 +106,11 @@ test("a late acknowledgement cannot erase a newer revision of the same draft", {
   let acknowledge!: () => void;
   let submitted!: () => void;
   const started = new Promise<void>(resolve => { submitted = resolve; });
-  plugin.api = async () => { submitted(); await new Promise<void>(resolve => { acknowledge = resolve; }); };
+  const received: string[] = [];
+  plugin.api = async (_route, draft) => {
+    received.push(draft!.title);
+    if (draft!.title === "Old") { submitted(); await new Promise<void>(resolve => { acknowledge = resolve; }); }
+  };
   const sharing = plugin.shareParked();
   await started;
   plugin.resumeComposer(composerFromDraft(localDrafts(plugin)[0].draft));
@@ -116,9 +120,10 @@ test("a late acknowledgement cannot erase a newer revision of the same draft", {
   assert.equal(localDrafts(plugin)[0].draft.title, "Revised");
   acknowledge();
   await Promise.all([sharing, parking]);
-  assert.equal(localDrafts(plugin)[0].draft.title, "Revised");
+  assert.deepEqual(received, ["Old", "Revised"]);
+  assert.equal(localDrafts(plugin).length, 0);
   const remoteOld = draftFromComposer(selection("Old"), "same-id");
-  assert.equal(resumable([remoteOld], plugin.state.parked, plugin.state.parkedDrafts)[0].draft.title, "Revised");
+  assert.equal(resumable([{ ...remoteOld, title: "Revised" }], plugin.state.parked, plugin.state.parkedDrafts)[0].draft.title, "Revised");
 });
 
 test("simultaneous refreshes share a pending draft once", { timeout: 2000 }, async () => {
@@ -132,5 +137,34 @@ test("simultaneous refreshes share a pending draft once", { timeout: 2000 }, asy
   acknowledge();
   await Promise.all([first, second]);
   assert.equal(calls, 1);
+  assert.equal(localDrafts(plugin).length, 0);
+});
+
+
+test("a failed or merely requested cancellation keeps the job recoverable", async () => {
+  const { plugin } = subject({ composer: emptyComposer(), activeJob: "job-id" });
+  plugin.busy = false;
+  await plugin.cancelJob();
+  assert.equal(plugin.state.activeJob, "job-id");
+  plugin.api = async () => ({});
+  await plugin.cancelJob();
+  assert.equal(plugin.state.activeJob, "job-id");
+});
+
+test("closing B while A is in flight drains both drafts exactly once", async () => {
+  const { plugin } = subject({ composer: selection("A") });
+  await plugin.parkComposer(false);
+  const received: string[] = [];
+  let acknowledge!: () => void;
+  plugin.api = async (_route, draft) => {
+    received.push(draft!.title);
+    if (draft!.title === "A") await new Promise<void>(resolve => { acknowledge = resolve; });
+  };
+  const sharing = plugin.shareParked();
+  plugin.state.composer = selection("B");
+  const closing = plugin.parkComposer(false);
+  acknowledge();
+  await Promise.all([sharing, closing]);
+  assert.deepEqual(received, ["A", "B"]);
   assert.equal(localDrafts(plugin).length, 0);
 });

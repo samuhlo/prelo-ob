@@ -45,3 +45,29 @@ Cada instalación del plugin consulta las releases públicas de GitHub al arranc
 El aviso aparece en Prelo y en Ajustes, con «Actualizar ahora» y un enlace a las novedades. Hay un comando «Comprobar actualizaciones» y un ajuste para desactivar las consultas automáticas. La consulta no usa la credencial del servidor ni transmite contenido del vault. Los errores de conexión no bloquean el plugin.
 
 «Actualizar ahora» descarga los tres assets del plugin y `SHA256SUMS` desde las URL de descarga de este repositorio. Solo escribe si las sumas coinciden, el manifiesto es de `margen` con la versión anunciada y Obsidian cumple `minAppVersion`; el manifiesto se escribe el último. Después recarga los manifiestos y reinicia el plugin con el registro interno de Obsidian, y si no está disponible pide reiniciar Obsidian. No se actualiza mientras otra operación de Prelo está en curso. Una release sin `SHA256SUMS` abre la página de la release. El paquete macOS actualiza el servicio y sus conectores en el Mac. El plugin compara su versión con la que anuncia el servidor y avisa si difieren; no instala ni reinicia servicios. Las instalaciones anteriores a 0.8.0 necesitan una primera actualización por el mecanismo anterior para recibir estos avisos.
+
+
+## Órdenes USB identificadas
+
+El protocolo de gestión del lector requiere un inventario reciente con identificador del dispositivo y SHA-256 del archivo. Cada orden se asocia al lector en la tabla adicional `kobo_command_targets`, conservando los identificadores y filas anteriores. Al adoptar un catálogo anterior, las órdenes pendientes sin destino pasan a fallidas con un aviso; deben solicitarse de nuevo tras conectar el lector. No se ejecutan automáticamente.
+
+El conector reclama una orden antes de modificar archivos. Una cancelación solo se confirma antes de la reclamación; una orden en ejecución se recupera para el mismo lector con el mismo identificador de reclamación. Los resultados se pueden confirmar de nuevo. Un archivo que cambió se conserva. Los conectores antiguos que consultan órdenes sin identificar el dispositivo no reciben órdenes. Actualiza servicio, conector y plugin conjuntamente; no rebajes solo el servidor después de activar este protocolo.
+
+## Comprobación editorial de la beta
+
+Los prompts llevan una versión explícita y la caché distingue proveedor y destino. Antes de redactar se comprueba que el plan incluya una ficha por nota y conexiones conocidas. Los modos de adaptación fiel requieren conservar los literales detectados (cifras, comandos e imágenes); si siguen faltando tras un reintento se rechaza la edición antes de publicarla o ponerla en cola. Repaso rápido permite condensar datos, pero conserva las referencias a imágenes. El modo original mantiene su cuerpo.
+
+Estas comprobaciones no demuestran equivalencia semántica: negaciones, condiciones, relaciones y explicaciones añadidas necesitan revisión. El corpus sintético de pruebas cubre números de un dígito, cifras incrustadas en otras, valores negativos, comandos, imágenes con identificadores largos, planificación incompleta y caché por proveedor. Antes de una candidata, ejecutar también una muestra real con notas ficticias en castellano y gallego y revisar datos, negaciones, idioma y contenido añadido. Nunca usar notas privadas en CI.
+
+La maquetación se verifica con EPUBCheck y con `check_caption_layout.py` a varios tamaños. Un render en MuPDF no equivale a un Kobo físico; la comprobación del lector sigue siendo independiente.
+
+## Recuperación del instalador público
+
+El instalador registra una transacción privada antes de cambiar archivos. La copia incluye el entorno Python nativo y los agentes, además de aplicación/plugin/configuración; si hay servicio disponible, exporta una biblioteca comprobada antes de empezar. Un fallo restaura esos archivos y arranca la imagen Docker anterior por su identificador, sin reconstruirla ni borrar volúmenes. Un proceso interrumpido requiere `--recover` explícito. Se exige cerrar Obsidian en todos los equipos y no tener trabajos ni USB en curso; no se promete una actualización concurrente con ediciones o cambios de configuración de otros clientes.
+
+Las pruebas de instalación usan vaults/directorios temporales y sustitutos de Docker/launchd: inyectan fallos en entorno nativo, arranque de contenedor, paquete, USB y plugin, además de cubrir éxito, interrupción y rechazo de bind mounts antiguos. No equivalen a una instalación limpia real en otro Mac, que sigue siendo parte de la aceptación manual.
+
+
+## Preparar la aceptación de una versión
+
+`python scripts/smoke_service.py --build --image prelo-ci --output data/validation` comprueba el servicio en volúmenes temporales y deja EPUB sintéticos. `python scripts/check_beta.py --digest` muestra la huella de las fuentes de producto. Tras completar las comprobaciones requeridas, registra su fecha y un resumen sanitizado en `docs/beta-acceptance.json`, junto a esa huella. `python scripts/check_beta.py` debe pasar antes de crear el tag. Los estados pendientes son deliberados: no cambiarlos para saltarse una prueba manual. El CI normal puede pasar aunque todavía no se haya autorizado publicar la candidata.
