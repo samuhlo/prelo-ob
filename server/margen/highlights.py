@@ -16,7 +16,7 @@ def resolve(highlight: Highlight, publications: dict):
         location = unquote(highlight.content_id + " " + highlight.start_path)
         candidates = [s for s in publication["sources"] if PurePosixPath(s["href"]).name in location]
         anchored = [s for s in candidates or publication["sources"] if re.search(
-            r"(?<![\w-])(?:" + re.escape(s.get("anchor", "n_" + s["id"])) + r"|b_" + re.escape(s["id"]) + r"_\d+)(?=$|[^\w.-])", location)]
+            r"(?<![\w-])(?:" + re.escape(s.get("anchor") if isinstance(s.get("anchor"), str) and s["anchor"] else "n_" + s["id"]) + r"|b_" + re.escape(s["id"]) + r"_\d+)(?=$|[^\w.-])", location)]
         if len(anchored) == 1:
             source, method = anchored[0], "anchor"
         elif len(candidates) == 1:

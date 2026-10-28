@@ -68,3 +68,20 @@ def test_impossible_cleanup_preserves_old_book_and_cache(service):
     with library.database(root) as db:db.execute("INSERT OR REPLACE INTO settings VALUES ('limit_bytes','100')")
     with pytest.raises(ValueError):library.cleanup(root)
     assert book.read_bytes()==original and (cache/'art.jpg').read_bytes()==b'cache'
+
+
+def test_staged_upload_only_reserves_remaining_disk_space(service, monkeypatch):
+    import shutil
+    client, root = service
+    data = epub(2_000_000)
+    initial_free = 128_000_000 + len(data) + 1
+    usage_type = type(shutil.disk_usage(root))
+    def usage(path):
+        occupied = sum(p.stat().st_size for p in root.rglob('*')
+                       if p.is_file() and p.suffix in {'.partial', '.epub'})
+        return usage_type(1_000_000_000, 1_000_000_000 - initial_free + occupied, initial_free - occupied)
+    monkeypatch.setattr(shutil, 'disk_usage', usage)
+    response = client.post('/v1/kobo/uploads?device=A&filename=book.epub', headers=AUTH, content=data)
+    assert response.status_code == 200, response.text
+    assert kobo.upload_file(root, response.json()['id']).read_bytes() == data
+    assert usage(root).free >= 128_000_000
