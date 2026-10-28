@@ -1,8 +1,9 @@
 """Audit only the explicit public source set; never print a detected secret."""
 import argparse
 import re
+import subprocess
 from pathlib import Path
-from public_files import public_files
+from public_files import PUBLIC_FILES, public_files
 
 PATTERNS = [r'-----BEGIN (?:OPENSSH |RSA |EC )?PRIVATE KEY-----',
             r'\b(?:ghp_|gho_|github_pat_)[A-Za-z0-9_]{20,}', r'\bsk-[A-Za-z0-9_-]{30,}',
@@ -20,6 +21,11 @@ def audit(root):
             if sep and re.search('TOKEN|KEY|PASSWORD|SECRET', key) and len(value) >= 24:
                 secrets.append(value)
     findings = []
+    if (root / ".git").exists():
+        tracked = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], check=True,
+                                 capture_output=True, text=True, timeout=10).stdout.split("\0")
+        findings.extend((name, "tracked file is outside the reviewed publication manifest")
+                        for name in tracked if name and name not in PUBLIC_FILES)
     for path in public_files(root):
         if path.suffix in {'.png', '.jpg', '.webp'}:
             findings.append((path.relative_to(root).as_posix(), 'public images need explicit review'))

@@ -11,15 +11,29 @@ import tempfile
 import time
 import unicodedata
 import urllib.request
+import urllib.error
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 import yaml
+from . import __version__
 
 
 def digest(value):
     return hashlib.sha256(value.encode() if isinstance(value, str) else value).hexdigest()
+
+
+def reader_identity(mount):
+    # Kobo's first comma-separated version field is its serial; firmware is mutable.
+    # Missing metadata is not evidence that two mounts are the same reader.
+    try:
+        serial = (mount / ".kobo/version").read_text(encoding="utf-8-sig").split(",")[0].strip()
+    except (OSError, UnicodeError):
+        serial = ""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", serial):
+        raise ValueError("No se puede identificar este Kobo. Revisa .kobo/version antes de solicitar cambios.")
+    return "serial-" + digest(serial)[:20]
 
 
 def stamp():
@@ -41,6 +55,20 @@ def properties(text):
         return {}
     value = yaml.safe_load(match.group(1))
     return value if isinstance(value, dict) else {}
+
+
+def frontmatter_prefix(path):
+    # Read through the closing delimiter, never scan examples in the body.
+    with path.open() as stream:
+        first = stream.readline()
+        if first.lstrip("\ufeff").rstrip("\r\n") != "---":
+            return ""
+        lines = [first]
+        for line in stream:
+            lines.append(line)
+            if line.rstrip("\r\n") == "---":
+                return "".join(lines)
+    return ""
 
 
 def relative(root, value):
@@ -114,6 +142,15 @@ ONBOARD = "file:///mnt/onboard/"
 EDITION_FILE = re.compile(r"margen-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.epub")
 
 
+
+def book_checksum(mount, path):
+    target = relative(mount, path)
+    if target.is_symlink() or not target.is_file():
+        return ""
+    with target.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
 def read_books(mount):
     """Books the reader has imported, plus Prelo files still waiting to be imported."""
     with kobo_snapshot(mount) as db:
@@ -139,7 +176,8 @@ def read_books(mount):
                       "title": string(row.get("Title"))[:300], "author": string(row.get("Attribution"))[:300],
                       "percent": percent, "last_read": string(row.get("DateLastRead"))[:40],
                       "status": string(row.get("ReadStatus"))[:10],
-                      "present": bool(path) and ".." not in path.split("/") and (mount / path).is_file()})
+                      "present": (".." not in path.split("/") and (mount / path).is_file()) if path else None,
+                      "sha256": book_checksum(mount, path) if path and ".." not in path.split("/") else ""})
     waiting = sorted(m[1] for f in mount.glob("margen-*.epub") if (m := EDITION_FILE.fullmatch(f.name)) and m[1] not in imported)
     return {"books": books, "unimported": waiting}
 
@@ -177,26 +215,54 @@ def highlight_block(highlight, source):
 def append_notes(vault, folder, highlights):
     directory = relative(vault, folder)
     directory.mkdir(parents=True, exist_ok=True)
-    by_group, source_paths = {}, {}
+    by_group, source_paths, key_groups = {}, {}, {}
+    issues, blocked_keys, blocked_groups = [], set(), set()
     for path in directory.glob("*.md"):
         if "sync-conflict" in path.name or path.is_symlink():
             continue
-        identity = properties(path.read_text()).get("margen_lectura")
+        text = path.read_text()
+        try:
+            identity = properties(text).get("margen_lectura")
+            if identity is not None and not isinstance(identity, str):
+                raise ValueError()
+        except (yaml.YAMLError, ValueError):
+            issues.append({"kind": "invalid_frontmatter", "path": path.relative_to(vault).as_posix()})
+            blocked_keys.update(re.findall(r"<!-- margen:([a-f0-9]{64}):", text))
+            # An invalid note can still declare a recognizable group in its YAML prefix.
+            # Use it only to defer that group, never to assign provenance or rewrite the note.
+            header = re.match(r"\A\ufeff?---\r?\n(.*?)\r?\n---(?:\r?\n|$)", text, re.S)
+            if header:
+                for line in header[1].splitlines():
+                    if not line.startswith("margen_lectura:"):
+                        continue
+                    try:
+                        group = yaml.safe_load(line).get("margen_lectura")
+                        if isinstance(group, str):
+                            blocked_groups.add(group)
+                    except (yaml.YAMLError, ValueError):
+                        pass
+            continue
         if identity:
             if identity in by_group:
-                raise ValueError("Hay dos notas con el mismo margen_lectura. Conserva ambas y revisa el conflicto.")
+                blocked_groups.add(identity)
+                issues.append({"kind": "duplicate_identity", "path": path.relative_to(vault).as_posix()})
             by_group[identity] = path
+            for key in re.findall(r"<!-- margen:([a-f0-9]{64}):", text):
+                if key in key_groups and key_groups[key] != identity:
+                    blocked_keys.add(key)
+                key_groups[key] = identity
     needed = {h["source"]["id"] for h in highlights if h.get("source")}
     duplicates = set()
     for path in vault.rglob("*.md"):
         if any(part.startswith(".") for part in path.relative_to(vault).parts) or path.is_symlink():
             continue
         # Only read the YAML prefix when locating identities.
-        with path.open() as stream:
-            prefix = stream.read(16_384)
-        match = re.search(r'^margen_id:\s*["\']?([a-zA-Z0-9_-]+)', prefix, re.M)
-        if match and match[1] in needed:
-            identity = match[1]
+        prefix = frontmatter_prefix(path)
+        try:
+            identity = properties(prefix).get("margen_id")
+        except (yaml.YAMLError, ValueError):
+            continue
+        if isinstance(identity, str) and identity in needed:
             if identity in source_paths:
                 duplicates.add(identity)
             source_paths[identity] = path.relative_to(vault).as_posix()
@@ -204,19 +270,29 @@ def append_notes(vault, folder, highlights):
         source_paths.pop(identity, None)
     groups = {}
     for h in highlights:
-        group = h["source"]["id"] if h.get("source") else digest(h["volume_id"])[:20]
-        groups.setdefault(group, []).append(h)
+        if h["key"] in blocked_keys:
+            continue
+        requested_group = h["source"]["id"] if h.get("source") else digest(h["volume_id"])[:20]
+        if requested_group in blocked_groups:
+            continue
+        group = key_groups.get(h["key"]) or requested_group
+        if group not in blocked_groups:
+            groups.setdefault(group, []).append(h)
     added, unresolved = 0, 0
     for group, items in groups.items():
         first = items[0]
         title = (first.get("source") or {}).get("title") or first.get("publication_title") or first["title"] or "Lectura"
         source = None
-        if first.get("source") and group not in duplicates:
-            source = source_paths.get(group)
+        source_id = first["source"]["id"] if first.get("source") else None
+        if source_id and source_id not in duplicates:
+            source = source_paths.get(source_id)
             candidate = relative(vault, first["source"]["path"])
             if not source and candidate.is_file():
-                identity = properties(candidate.read_text()).get("margen_id")
-                if identity in {None, group}:
+                try:
+                    identity = properties(candidate.read_text()).get("margen_id")
+                except (yaml.YAMLError, ValueError):
+                    identity = "invalid"
+                if identity is None or identity == source_id:
                     source = first["source"]["path"]
         unresolved += sum(bool(h.get("source") and not source or h["match"] == "unresolved") for h in items)
         target = by_group.get(group)
@@ -266,7 +342,8 @@ def append_notes(vault, folder, highlights):
                 stream.flush()
                 os.fsync(stream.fileno())
         added += count
-    return {"examined": len(highlights), "added": added, "unresolved": unresolved}
+    return {"examined": len(highlights), "added": added, "unresolved": unresolved,
+            "skipped": len(highlights) - sum(map(len, groups.values())), "issues": issues}
 
 
 class Worker:
@@ -288,13 +365,12 @@ class Worker:
         return data if binary else json.loads(data)
 
     def report(self, state, message, device=""):
-        return self.api("/v1/device", {"state": state, "message": message, "device": device, "last_sync": self.last_sync})
+        return self.api("/v1/device", {"state": state, "message": message, "device": device, "last_sync": self.last_sync, "version": __version__})
 
     def synchronize(self, mount):
         with (self.state / "usb.lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            version = mount / ".kobo/version"
-            device = digest(version.read_bytes() if version.is_file() else str(mount))[:20]
+            device = reader_identity(mount)
             self.report("working", "Recogiendo subrayados del Kobo.", device)
             # Taken before copying: it shows what the reader imported after the previous connection.
             self.api("/v1/device/inventory", {"device": device, **read_books(mount)})
@@ -340,7 +416,9 @@ class Worker:
                 summary.append(f"{sent} revistas copiadas")
             if changes:
                 summary.append(f"{changes} cambios aplicados")
-            self.report("ready", " · ".join(summary) + (". Los cambios aparecerán al desconectar el Kobo." if sent or changes else "."), device)
+            if result["issues"]:
+                summary.append(f"{len(result['issues'])} notas necesitan revisar sus propiedades; se conservan las citas en el servicio")
+            self.report("error" if result["issues"] else "ready", " · ".join(summary) + (". Los cambios aparecerán al desconectar el Kobo." if sent or changes else "."), device)
             if self.config.get("auto_eject", True):
                 subprocess.run(["/usr/sbin/diskutil", "eject", str(mount)], check=True, capture_output=True, timeout=25)
             return self.last_sync
@@ -348,17 +426,29 @@ class Worker:
     def carry_out(self, mount, device):
         """Removals and uploads requested from any computer since the last connection."""
         done = 0
-        for command in self.api("/v1/kobo/commands"):
+        for command in self.api("/v1/kobo/commands?device=" + quote(device)):
             identity = command["id"]
             if not re.fullmatch(r"[a-f0-9-]{36}", identity):
                 raise ValueError("Orden no válida.")
+            # Claim before touching the reader. Cancellation is only promised while still pending.
+            try:
+                command = self.api(f"/v1/kobo/commands/{identity}/claim", {"device": device})
+            except urllib.error.HTTPError as error:
+                if error.code == 409:
+                    continue
+                raise
+            receipt = {"device": device, "claim_token": command["claim_token"]}
             try:
                 parts = command["path"].split("/")
                 if any(p in {"", ".", ".."} or p.startswith(".") for p in parts) or not command["path"].lower().endswith(".epub"):
                     raise ValueError("Ruta de libro no válida en el Kobo.")
-                target = mount.joinpath(*parts)
+                target = relative(mount, command["path"])
+                if target.is_symlink():
+                    raise ValueError("El archivo no puede ser un enlace simbólico.")
                 self.report("working", "Aplicando los cambios pedidos desde Prelo.", device)
                 if command["kind"] == "remove":
+                    if target.exists() and book_checksum(mount, command["path"]) != command["sha256"]:
+                        raise ValueError("El libro cambió desde la solicitud. Se conserva; vuelve a revisar el inventario.")
                     target.unlink(missing_ok=True)
                 elif command["kind"] == "upload":
                     data = self.api(f"/v1/kobo/uploads/{identity}", binary=True)
@@ -381,9 +471,9 @@ class Worker:
                 else:
                     raise ValueError("Orden desconocida.")
             except ValueError as error:
-                self.api(f"/v1/kobo/commands/{identity}/done", {"ok": False, "message": str(error)[:500]})
+                self.api(f"/v1/kobo/commands/{identity}/done", {**receipt, "ok": False, "message": str(error)[:500]})
                 continue
-            self.api(f"/v1/kobo/commands/{identity}/done", {"ok": True, "message": ""})
+            self.api(f"/v1/kobo/commands/{identity}/done", {**receipt, "ok": True, "message": ""})
             done += 1
         return done
 
@@ -400,7 +490,7 @@ class Worker:
                 else:
                     mount = mounts[0]
                     state = self.api("/v1/device")
-                    pending = self.api("/v1/deliveries") or self.api("/v1/kobo/commands")
+                    pending = self.api("/v1/deliveries") or self.api("/v1/kobo/commands?device=" + quote(reader_identity(mount)))
                     if seen != str(mount) or state["request"] != request_id or pending:
                         self.synchronize(mount)
                         seen = str(mount)

@@ -48,6 +48,8 @@ def validate_connection(value):
     parsed = urlsplit(url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ValueError("La dirección del servidor no es válida.")
+    if parsed.scheme == "http" and parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
+        raise ValueError("La conexión a otro equipo necesita HTTPS.")
     token = value.get("token")
     if not isinstance(token, str) or len(token) < 24 or "\n" in token or "\r" in token:
         raise ValueError("La conexión necesita una credencial de al menos 24 caracteres.")
