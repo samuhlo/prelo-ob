@@ -1,13 +1,10 @@
-Prelo 1.0.0 estabiliza la beta de lectura y retorno de subrayados por USB.
+Prelo 1.0.1 estrena logotipo y pule la interfaz.
 
-- Revistas a medias conservadas incluso con varios borradores sin conexión.
-- Órdenes de retirada vinculadas al lector y al archivo; cancelación coordinada.
-- Trabajos recuperables, subidas de EPUB con límites coherentes y backups que incluyen entregas pendientes.
-- Importación resistente a notas defectuosas y mayor control de fidelidad de las adaptaciones con IA.
-- Recuperación de actualizaciones, dependencias revisadas y paquetes limitados a archivos públicos aprobados.
+- Nuevo logotipo: PREL y la O dentro de una piedra amarilla. El icono lateral conserva la revista.
+- Portadas con «1 sección» en singular.
+- «Actualizar ahora» solo se destaca cuando hay una versión nueva.
+- Biblioteca en MB por debajo de 1 GB, «Sin subrayados» en libros sin citas y avisos de selección más claros.
 
-Actualiza plugin, servicio y conectores conjuntamente. Las órdenes antiguas sin destino identificado o vinculadas al hash de firmware deben solicitarse de nuevo tras conectar el lector. Los identificadores de notas, ediciones y citas se conservan.
+Actualiza plugin, servicio y conectores conjuntamente. No cambian datos persistidos, identificadores de notas, ediciones ni citas, ni el formato de la biblioteca.
 
-La cadena de PR #1–#10 y las correcciones de los 24 casos contrastados están integradas. CI completo en macOS, Windows y Linux; actualización real 0.10.1 → 1.0.0 en Obsidian; prueba física de dos publicaciones y cuatro subrayados en Kobo, sin duplicación al reimportar; recuperación de biblioteca en volumen aislado.
-
-**Límite aceptado para esta beta personal:** no se ha validado la instalación de 1.0.0 en otro Mac limpio ni su arranque tras iniciar sesión. El propietario ha dispensado expresamente esa comprobación; no se presenta como superada. Consulta docs/validacion-publica.md.
+**Límite aceptado para esta beta personal:** el propietario ha dispensado expresamente para 1.0.1 las cuatro comprobaciones manuales (instalación en otro Mac limpio, actualización en Obsidian real, ida y vuelta USB con Kobo físico y recuperación de biblioteca). Ninguna se presenta como superada para esta versión; la última aceptación física es la de 1.0.0. Pasan las pruebas automáticas en macOS, Windows y Linux. Consulta docs/validacion-publica.md.

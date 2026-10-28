@@ -47,9 +47,9 @@ COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-## Anaco crystal artwork
+## Anaco stone artwork
 
-Adapted from https://github.com/samuhlo/anaco-ob (55a2792f4d4f4eb53d0ea8327573e1983d019551).
+The yellow stone of the logo is shared with https://github.com/samuhlo/anaco-ob (d41fb1423bbd3d9f6b0dd831661e5fca25bd217b).
 
 MIT License
 
@@ -72,3 +72,7 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Logo lettering
+
+The logo files in `assets/` contain lettering from Barlow Condensed Black (Copyright 2017 The Barlow Project Authors) and Caveat (Copyright 2014 The Caveat Project Authors), converted to outlines. Both typefaces are licensed under the SIL Open Font License, Version 1.1: https://openfontlicense.org. No font files are distributed.

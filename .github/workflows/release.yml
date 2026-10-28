@@ -39,18 +39,22 @@ jobs:
           root = Path.cwd()
           record = json.loads((root / 'docs/beta-acceptance.json').read_text())
           errors = check(root)
-          install = record.get('checks', {}).get('clean_mac_install', {})
-          # Owner-authorized exception for this personal beta only; all other
-          # checks, the version match and the product fingerprint remain required.
-          waived = (record.get('version') == '1.0.0'
-                    and install.get('status') == 'waived'
-                    and install.get('approved_by') == 'owner'
-                    and bool(install.get('date')) and bool(install.get('summary'))
-                    and errors == ['Pendiente: clean_mac_install'])
+          # Owner-authorized exceptions for this personal beta only, per version.
+          # The version match and the product fingerprint always remain required.
+          WAIVERS = {'1.0.0': {'clean_mac_install'},
+                     '1.0.1': {'clean_mac_install', 'obsidian_upgrade', 'usb_roundtrip', 'backup_recovery'}}
+          allowed = WAIVERS.get(record.get('version'), set())
+          def approved(name):
+              item = record.get('checks', {}).get(name, {})
+              return (name in allowed and item.get('status') == 'waived'
+                      and item.get('approved_by') == 'owner'
+                      and bool(item.get('date')) and bool(item.get('summary')))
+          pending = [error.removeprefix('Pendiente: ') for error in errors if error.startswith('Pendiente: ')]
+          waived = bool(errors) and len(pending) == len(errors) and all(approved(name) for name in pending)
           if errors and not waived:
               raise SystemExit('\n'.join(errors))
           if waived:
-              print('1.0.0: clean Mac installation explicitly waived by owner; not certified.')
+              print(f"{record['version']}: {', '.join(pending)} explicitly waived by owner; not certified.")
           PY
       - run: python scripts/audit_public.py && python scripts/build_release.py
       - name: Check version and publish beta
