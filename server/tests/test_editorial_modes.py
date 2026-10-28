@@ -100,7 +100,7 @@ def test_settings_reach_every_provider(monkeypatch, provider):
             assert payload["language"] == "gl" and "galego" in instructions
             assert [n["id"] for n in payload["notes"]] == ["a", "b"]
             return {"title": "Lectura", "subtitle": "", "chapters": [{"title": "Tema", "source_ids": ["a", "b"]}],
-                    "visuals": [], "briefs": [{"source_id": "a", "title": "Primeiro en galego", "summary": "Resumen A", "connections": ["b"]}]}
+                    "visuals": [], "briefs": [{"source_id": "a", "title": "Primeiro en galego", "summary": "Resumen A", "connections": ["b"]}, {"source_id": "b", "title": "Segundo", "summary": "", "connections": []}]}
         assert payload["settings"]["writing_mode"] == "narrative" and payload["settings"]["study_aids"] == "complete"
         assert "revista narrativa" in instructions and "Preguntas" in instructions
         return {"markdown": f"Explicación de {payload['source'][-2]}.", "aids": "### Preguntas\n\n1. ¿Qué?"}
@@ -121,7 +121,7 @@ def test_settings_reach_every_provider(monkeypatch, provider):
     monkeypatch.setattr(httpx.Client, "post", post)
     plan = plan_publication(request)
     assert [a.markdown for a in plan.articles] == ["Explicación de A.", "Explicación de B."]
-    assert [a.title for a in plan.articles] == ["Primeiro en galego", ""]
+    assert [a.title for a in plan.articles] == ["Primeiro en galego", "Segundo"]
     assert calls[0] == ("plan", "planner", "high")
     assert sorted(calls[1:]) == [("write", "fixture", ""), ("write", "fixture", "")]
 

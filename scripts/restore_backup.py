@@ -1,5 +1,6 @@
 """Restore a trusted Prelo export into a NEW directory for inspection or recovery."""
 import argparse
+import hashlib
 import json
 import re
 import sqlite3
@@ -16,7 +17,8 @@ def restore(archive_path, destination):
         if "catalogue.sql" not in names:
             raise ValueError("Falta el catálogo.")
         allowed = re.compile(r"^[0-9a-f-]{36}/(?:manifest\.json|cover\.svg|margen-[0-9a-f-]{36}\.epub)$")
-        if any(name != "catalogue.sql" and not allowed.fullmatch(name) for name in names):
+        uploads = re.compile(r"^\.uploads/[0-9a-f-]{36}\.epub$")
+        if len(set(names)) != len(names) or any(name != "catalogue.sql" and not allowed.fullmatch(name) and not uploads.fullmatch(name) for name in names):
             raise ValueError("El archivo contiene rutas no reconocidas.")
         if archive.testzip():
             raise ValueError("El archivo no supera la comprobación de integridad.")
@@ -38,6 +40,17 @@ def restore(archive_path, destination):
                 raise ValueError("El catálogo restaurado no es íntegro.")
             editions = db.execute("SELECT count(*) FROM editions").fetchone()[0]
             annotations = db.execute("SELECT count(*) FROM annotations").fetchone()[0]
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name='kobo_commands'").fetchone():
+                for identity, checksum in db.execute("SELECT id,sha256 FROM kobo_commands WHERE kind='upload' AND state IN ('pending','executing')"):
+                    if not re.fullmatch(r"[0-9a-f-]{36}", identity):
+                        raise ValueError("Identidad de subida no válida.")
+                    file = destination / ".uploads" / (identity + ".epub")
+                    if not file.is_file():
+                        db.execute("UPDATE kobo_commands SET state='failed',message='Archivo ausente en el backup; vuelve a subirlo.' WHERE id=?", (identity,))
+                    else:
+                        with file.open("rb") as stream:
+                            if hashlib.file_digest(stream, "sha256").hexdigest() != checksum:
+                                raise ValueError("Una subida restaurada no coincide con su checksum.")
     return {"editions": editions, "annotations": annotations, "restored_to": str(destination)}
 
 

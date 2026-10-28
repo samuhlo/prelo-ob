@@ -5,25 +5,31 @@ on:
 permissions:
   contents: read
 jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
   release:
+    needs: checks
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: plugin/package-lock.json
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.13'
       - run: npm ci && npm test && npm run build
         working-directory: plugin
-      - run: python -m pip install -r server/requirements.lock pytest
+      - run: python -m pip install -r server/requirements.lock
+      - run: python -m pip install pytest
       - run: python -m pip install --no-deps -e server
       - run: python -m pytest server/tests tests -q
+      - run: python scripts/check_beta.py
       - run: python scripts/audit_public.py && python scripts/build_release.py
       - name: Check version and publish beta
         env:

@@ -99,6 +99,7 @@ def test_shared_draft_is_visible_to_another_client_and_transfer_is_protected(env
 
 def make_kobo(path, filename):
     (path / ".kobo").mkdir(parents=True)
+    (path / ".kobo/version").write_text("SYNTHETIC-SERIAL,hardware,4.38.21908,model")
     db = sqlite3.connect(path / ".kobo/KoboReader.sqlite")
     db.executescript("CREATE TABLE content (ContentID TEXT, ContentType INTEGER, Title TEXT, Attribution TEXT);"
                      "CREATE TABLE Bookmark (BookmarkID TEXT, VolumeID TEXT, ContentID TEXT, Text TEXT, Annotation TEXT, DateCreated TEXT, Hidden TEXT);")

@@ -25,8 +25,9 @@ export type Composer = {
 export { emptyComposer } from "./session";
 type Library = {
   version?: string;
+  issues?: { edition: string; kind: string }[];
   publications: Publication[];
-  device: { state: string; message: string; heartbeat_at?: string; last_sync?: { at: string; added: number; sent: number } };
+  device: { state: string; message: string; version?: string; heartbeat_at?: string; last_sync?: { at: string; added: number; sent: number } };
   storage: { used_bytes: number; limit_bytes: number };
   jobs: { id: string; state: string; message: string; updated_at: string }[];
 };
@@ -54,6 +55,8 @@ export class StudioView extends ItemView {
   private library?: Library;
   private drafts: Draft[] = [];
   private aiAvailable = false;
+  private imagesAvailable = false;
+  private bridgeVersion?: string;
   private connection = "Conectando con tu biblioteca…";
   private error = "";
   private closed = false;
@@ -134,6 +137,8 @@ export class StudioView extends ItemView {
       this.drafts = drafts.json as Draft[];
       this.kobo = kobo;
       this.aiAvailable = !!status.json.ai_available;
+      this.imagesAvailable = !!status.json.image_generation_available;
+      this.bridgeVersion = status.json.bridge_version;
       this.connection = "Biblioteca conectada";
       this.error = "";
       const current = this.library.jobs.find(j => j.id === this.plugin.state.activeJob);
@@ -195,6 +200,9 @@ export class StudioView extends ItemView {
     const update = this.plugin.update;
     const server = this.library?.version;
     if (server) this.plugin.serverVersion = server;
+    for (const [name, version] of [["conector USB", this.library?.device.version], ["puente de IA", this.bridgeVersion]])
+      if (server && version && compareVersions(server, version) === 1)
+        notice.createEl("p", { text: `El ${name} usa ${version}; actualiza los conectores del Mac junto al servicio (${server}).` });
     if (update) {
       notice.createEl("p", { text: `Prelo ${update.version}${update.beta ? " (beta)" : ""} disponible · tienes ${this.plugin.manifest.version} en este equipo.` });
       button(notice, "Actualizar ahora", () => void this.plugin.installUpdate(), "download");
@@ -446,13 +454,13 @@ export class StudioView extends ItemView {
   private updateCreateButton() {
     const c = this.plugin.state.composer;
     const needsAI = needsEditorialAI(c);
-    const blocked = !!this.error || !this.library || needsAI && !this.aiAvailable || !c.paths.length || c.paths.some(p => !(this.app.vault.getAbstractFileByPath(p) instanceof TFile));
+    const blocked = c.style === "retro90" && !this.imagesAvailable || !!this.error || !this.library || needsAI && !this.aiAvailable || !c.paths.length || c.paths.some(p => !(this.app.vault.getAbstractFileByPath(p) instanceof TFile));
     const button = this.contentEl.querySelector<HTMLButtonElement>(".margen-create-button");
     if (button) button.disabled = blocked;
     const summary = this.contentEl.querySelector<HTMLElement>(".margen-create-summary");
     if (summary) summary.setText(this.error ? "Sin conexión al Mac" : `${c.paths.length} notas · ${adaptsContent(c) ? `${writingModes[c.writingMode].label} · ${studyAids[c.studyAids].label} · IA` : c.style === "retro90" ? `Portada + ${c.paths.length} carátulas con IA` : c.intent.trim() ? "Instrucciones extra con IA" : c.useAI ? "Organización con IA" : "Sin IA"}`);
     const hint = this.contentEl.querySelector<HTMLElement>(".margen-create-hint");
-    if (hint) hint.setText(this.error ? this.error : needsAI && !this.aiAvailable ? "La IA del Mac no está disponible. Puedes usar Revista de estudio sin IA."
+    if (hint) hint.setText(this.error ? this.error : c.style === "retro90" && !this.imagesAvailable ? "Este proveedor no genera imágenes. Usa Revista de estudio o configura Codex en el Mac." : needsAI && !this.aiAvailable ? "La IA del Mac no está disponible. Puedes usar Revista de estudio sin IA."
       : c.intent.trim() ? "Se aplicarán tus instrucciones extra con IA, respetando la redacción elegida y el orden si lo has bloqueado."
       : adaptsContent(c) ? "La IA preparará la redacción y los apoyos elegidos. Revisa la adaptación antes de estudiar; puede tardar unos minutos."
       : c.style === "retro90" ? "Se creará una portada y una carátula retro por nota. Cuantas más notas, mayor tiempo y consumo de IA."
@@ -536,6 +544,8 @@ export class StudioView extends ItemView {
       notice.createSpan({ text: `Ya está lista: ${this.created.title}` });
       button(notice, "Ver portada e índice", () => this.plugin.preview(this.created!));
     }
+    if (this.library?.issues?.length)
+      this.page!.createEl("p", { cls: "margen-warnings", text: `${this.library.issues.length} fichas de edición necesitan recuperarse desde una copia. Las demás lecturas siguen disponibles.` });
     this.renderJobs();
     const toolbar = this.page!.createDiv({ cls: "margen-library-toolbar" });
     const search = toolbar.createEl("input", { type: "search", placeholder: "Buscar una lectura…", attr: { "aria-label": "Buscar en la biblioteca" } });
@@ -645,7 +655,7 @@ export class StudioView extends ItemView {
     if (this.kobo) button(deviceActions, "Enviar un EPUB", () => this.pickEpub(), "upload");
 
     const queued = (this.library?.publications || []).filter(p => ["queued", "transferring"].includes(p.delivery || ""));
-    const orders = (this.kobo?.commands || []).filter(c => ["pending", "executing"].includes(c.state) || c.state === "failed" && (!this.kobo?.at || (c.done_at ?? "") > this.kobo.at));
+    const orders = (this.kobo?.commands || []).filter(c => ["pending", "executing", "failed"].includes(c.state));
     this.page!.createEl("h2", { text: "Próxima conexión" });
     if (!queued.length && !orders.length)
       this.page!.createEl("p", { cls: "margen-hint margen-inline-empty", text: "No hay nada pendiente. Envía una revista desde la biblioteca o un EPUB desde aquí; no necesitas tener el Kobo conectado." });
@@ -658,8 +668,8 @@ export class StudioView extends ItemView {
       for (const order of orders) {
         const row = list.createDiv({ cls: `margen-order-row${order.state === "failed" ? " is-failed" : ""}` });
         setIcon(row.createSpan(), order.kind === "remove" ? "trash-2" : "upload");
-        row.createSpan({ text: commandLabel(order) });
-        if (order.state === "pending") iconButton(row, "x", "Cancelar este cambio", () => void this.plugin.run(async () => {
+        row.createSpan({ text: commandLabel(order) + (order.device && order.device !== this.kobo?.device ? " · otro lector" : "") });
+        if (["pending", "failed"].includes(order.state)) iconButton(row, "x", order.state === "failed" ? "Descartar este fallo" : "Cancelar este cambio", () => void this.plugin.run(async () => {
           await this.plugin.api(`/v1/kobo/commands/${order.id}`, undefined, "DELETE");
           await this.refresh(true);
         }));

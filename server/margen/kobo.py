@@ -7,7 +7,7 @@ import uuid
 import zipfile
 from collections import Counter
 from pathlib import Path, PurePosixPath
-from .library import database, inventory, now, records
+from .library import LOCK, database, inventory, now, records, storage
 
 MAX_UPLOAD = 200_000_000
 RESERVED = re.compile(r"^margen-", re.I)
@@ -34,12 +34,13 @@ def upload_name(filename: str) -> str:
 
 
 def check_epub(data: bytes):
-    if len(data) > MAX_UPLOAD:
+    size = data.stat().st_size if isinstance(data, Path) else len(data)
+    if size > MAX_UPLOAD:
         raise ValueError("El EPUB supera los 200 MB.")
     try:
-        with zipfile.ZipFile(io.BytesIO(data)) as book:
+        with zipfile.ZipFile(data if isinstance(data, Path) else io.BytesIO(data)) as book:
             first = book.infolist()[0]
-            if first.filename != "mimetype" or book.read(first).strip() != b"application/epub+zip":
+            if first.filename != "mimetype" or first.file_size != 20 or first.compress_type != zipfile.ZIP_STORED or book.read(first) != b"application/epub+zip":
                 raise ValueError
             book.getinfo("META-INF/container.xml")
     except (zipfile.BadZipFile, ValueError, KeyError, IndexError):
@@ -52,7 +53,9 @@ def row(record):
 
 def listing(root):
     with database(root) as db:
-        return [row(r) for r in db.execute("SELECT * FROM kobo_commands ORDER BY created_at DESC LIMIT 100")]
+        return [{**row(r), "device": r["device"]} for r in db.execute(
+            """SELECT c.*,t.device FROM kobo_commands c LEFT JOIN kobo_command_targets t ON c.id=t.id
+               ORDER BY CASE WHEN c.state IN ('pending','executing','failed') THEN 0 ELSE 1 END, c.created_at DESC""")]
 
 
 def pending(root, device=""):
@@ -100,6 +103,9 @@ def request_removal(root, path, device=""):
     with database(root) as db:
         existing = db.execute("SELECT * FROM kobo_commands WHERE state IN ('pending','executing') AND path=?", (path,)).fetchone()
         if existing:
+            target = db.execute("SELECT device FROM kobo_command_targets WHERE id=?", (existing["id"],)).fetchone()
+            if not target or target["device"] != device:
+                raise ValueError("Ya existe una orden para otro lector con ese nombre. Revisa las órdenes pendientes.")
             if existing["kind"] == "remove":
                 return row(existing)
             raise ValueError("Ese libro tiene una subida pendiente. Cancélala en su lugar.")
@@ -117,16 +123,35 @@ def upload(root, filename, data, device=""):
     identity = str(uuid.uuid4())
     folder = Path(root) / ".uploads"
     folder.mkdir(exist_ok=True)
-    (folder / (identity + ".epub")).write_bytes(data)
-    with database(root) as db:
-        if db.execute("SELECT 1 FROM kobo_commands WHERE state IN ('pending','executing') AND path=?", (name,)).fetchone():
-            (folder / (identity + ".epub")).unlink()
-            raise ValueError("Ya hay un EPUB con ese nombre pendiente de enviar.")
-        db.execute("INSERT INTO kobo_commands VALUES (?,?,?,?,?,?,?,?,?)",
-                   (identity, "upload", name, name.removesuffix(".epub"), hashlib.sha256(data).hexdigest(),
-                    "pending", None, now(), None))
-        db.execute("INSERT INTO kobo_command_targets(id,device) VALUES (?,?)", (identity, device))
-        return row(db.execute("SELECT * FROM kobo_commands WHERE id=?", (identity,)).fetchone())
+    target = folder / (identity + ".epub")
+    size = data.stat().st_size if isinstance(data, Path) else len(data)
+    with LOCK:
+        state = storage(root)
+        if state["used_bytes"] + size > state["limit_bytes"]:
+            raise ValueError("La subida no cabe en la cuota. Libera espacio o amplía el límite.")
+        # A same-filesystem rename consumes no second copy of the staged EPUB.
+        additional = 0 if isinstance(data, Path) and data.stat().st_dev == folder.stat().st_dev else size
+        if state["free_disk_bytes"] < additional + 128_000_000:
+            raise ValueError("Falta espacio para guardar la subida.")
+        try:
+            with database(root) as db:
+                if db.execute("SELECT 1 FROM kobo_commands WHERE state IN ('pending','executing') AND path=?", (name,)).fetchone():
+                    raise ValueError("Ya hay un EPUB con ese nombre pendiente de enviar.")
+                if isinstance(data, Path):
+                    data.replace(target)
+                else:
+                    target.write_bytes(data)
+                with target.open("rb") as stream:
+                    checksum = hashlib.file_digest(stream, "sha256").hexdigest()
+                db.execute("INSERT INTO kobo_commands VALUES (?,?,?,?,?,?,?,?,?)",
+                           (identity, "upload", name, name.removesuffix(".epub"), checksum,
+                            "pending", None, now(), None))
+                db.execute("INSERT INTO kobo_command_targets(id,device) VALUES (?,?)", (identity, device))
+                result = row(db.execute("SELECT * FROM kobo_commands WHERE id=?", (identity,)).fetchone())
+            return result
+        except BaseException:
+            target.unlink(missing_ok=True)
+            raise
 
 
 def upload_file(root, identity):
