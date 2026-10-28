@@ -3,24 +3,25 @@
   "product_sha256": "0a66f697cbaa777a6804dfac13cefc69d5ed205e0176b932312abc6247940779",
   "checks": {
     "clean_mac_install": {
-      "status": "pending",
-      "date": "",
-      "summary": "Revalidar para esta versión."
+      "status": "waived",
+      "date": "2026-10-28",
+      "summary": "El propietario dispensa expresamente la instalación en otro Mac limpio para la beta 1.0.0, de uso principalmente personal. Asume resolver posibles problemas de instalación si otras personas la prueban. No se ha realizado ni se certifica esa prueba para esta versión.",
+      "approved_by": "owner"
     },
     "obsidian_upgrade": {
-      "status": "pending",
-      "date": "",
-      "summary": "Revalidar para esta versión."
+      "status": "passed",
+      "date": "2026-10-28",
+      "summary": "Obsidian 1.14.4 real en vault sintético: actualización del paquete 0.10.1 al paquete 1.0.0; ajustes conservados byte a byte; borrador de dos notas retomado; dos borradores sin conexión sobreviven cierre/reapertura y se comparten al reconectar. Vault habitual sin actualizar."
     },
     "usb_roundtrip": {
-      "status": "pending",
-      "date": "",
-      "summary": "Revalidar para esta versión."
+      "status": "passed",
+      "date": "2026-10-28",
+      "summary": "Kobo físico por USB con servicio y conector 1.0.0 aislados: dos publicaciones sintéticas copiadas y verificadas; el propietario confirma texto, tabla e imagen JPEG plana legibles. Cuatro subrayados recuperados en dos notas; segunda importación sin duplicados y comentarios conservados. Solo los dos libros de prueba retirados. La base del lector no cambió durante las operaciones del conector."
     },
     "backup_recovery": {
-      "status": "pending",
-      "date": "",
-      "summary": "Revalidar para esta versión."
+      "status": "passed",
+      "date": "2026-10-28",
+      "summary": "Servicio 1.0.0 en volumen Docker desechable y recuperación servida desde otro volumen nuevo: dos ediciones, una anotación y EPUB pendiente verificado. Repetido por CI remoto del head integrado en main. Certifica recuperación lógica de biblioteca, no recuperación completa de un Mac."
     }
   }
 }
