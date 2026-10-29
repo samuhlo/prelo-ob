@@ -1,29 +1,29 @@
 {
-  "version": "1.0.1",
-  "product_sha256": "c6ad109803fc67f2a65a5db1e1ca2e9d5af648459a44f4ad4583df7c48a50e99",
+  "version": "1.0.2",
+  "product_sha256": "20223bdf7d67b5c4a86145485b809fdafa1d215426815de449653d440acddec4",
   "checks": {
     "clean_mac_install": {
       "status": "passed",
-      "date": "2026-10-28",
-      "summary": "El propietario confirma que realizó la instalación del paquete en otro Mac limpio con 1.0.1 y que se superó.",
+      "date": "2026-10-29",
+      "summary": "El propietario confirma que realizó la instalación del paquete en otro Mac limpio con 1.0.2 y que se superó.",
       "confirmed_by": "owner"
     },
     "obsidian_upgrade": {
       "status": "passed",
-      "date": "2026-10-28",
-      "summary": "El propietario confirma que realizó la actualización 1.0.0 → 1.0.1 en Obsidian real con 1.0.1 y que se superó.",
+      "date": "2026-10-29",
+      "summary": "El propietario confirma que realizó la actualización 1.0.1 → 1.0.2 en Obsidian real con 1.0.2 y que se superó.",
       "confirmed_by": "owner"
     },
     "usb_roundtrip": {
       "status": "passed",
-      "date": "2026-10-28",
-      "summary": "El propietario confirma que realizó la ida y vuelta USB con Kobo físico con 1.0.1 y que se superó.",
+      "date": "2026-10-29",
+      "summary": "El propietario confirma que realizó la ida y vuelta USB con Kobo físico con 1.0.2 y que se superó.",
       "confirmed_by": "owner"
     },
     "backup_recovery": {
       "status": "passed",
-      "date": "2026-10-28",
-      "summary": "El propietario confirma que realizó la recuperación de biblioteca con 1.0.1 y que se superó.",
+      "date": "2026-10-29",
+      "summary": "El propietario confirma que realizó la recuperación de biblioteca con 1.0.2 y que se superó.",
       "confirmed_by": "owner"
     }
   }

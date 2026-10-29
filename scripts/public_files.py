@@ -104,6 +104,8 @@ server/margen/library.py
 server/margen/models.py
 server/margen/native.py
 server/margen/prompts.py
+server/margen/service_update.py
+server/margen/updater.py
 server/pyproject.toml
 server/requirements.lock
 server/tests/test_command_safety.py
@@ -120,6 +122,7 @@ server/tests/test_pipeline.py
 server/tests/test_image_boundaries.py
 server/tests/test_staged_editor.py
 server/tests/test_storage_recovery.py
+server/tests/test_service_update.py
 server/uv.lock
 tests/test_installation.py
 tests/test_install_recovery.py

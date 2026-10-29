@@ -160,7 +160,10 @@ def _install_service(vault, *, ai=None, root=ROOT, runtime=None, check=False):
     run([*docker, "cp", str(app / "dist/margen") + "/.", container + ":/data/.plugin-release/"], timeout=30)
     request("http://127.0.0.1:8765", "/v1/status", env["MARGEN_TOKEN"])
     print("4/5 · Configurando la sincronización USB…", flush=True)
-    install_usb(runtime, env_file, vault=vault, label="local.prelo.kobo")
+    # Updates asked from Obsidian run this installer again from the verified release package.
+    update_command = [shutil.which("uv"), "run", "--no-project", "--python", "3.13", "python",
+                      "{release}/scripts/install.py", "--vault", str(vault)]
+    install_usb(runtime, env_file, vault=vault, label="local.prelo.kobo", update_command=update_command)
     plugin_state = vault / ".obsidian/plugins/margen/data.json"
     settings = json.loads(plugin_state.read_text(encoding="utf-8-sig")).get("settings", {}) if plugin_state.exists() else {}
     usb_settings = json.loads((runtime / "usb.json").read_text(encoding="utf-8-sig"))

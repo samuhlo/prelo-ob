@@ -1,6 +1,6 @@
 # Aceptación de la candidata beta
 
-La versión preparada es **1.0.1**. No se considera lista para anunciar únicamente porque sus pruebas automáticas pasen. El estado preciso está en [beta-acceptance.json](beta-acceptance.json).
+La versión preparada es **1.0.2**. No se considera lista para anunciar únicamente porque sus pruebas automáticas pasen. El estado preciso está en [beta-acceptance.json](beta-acceptance.json).
 
 ## Comprobaciones automáticas
 
@@ -18,6 +18,10 @@ Los tests de instalación inyectan fallos por etapa en fixtures. Los controles d
 4. Recuperar una biblioteca aislada con publicaciones, citas y un EPUB pendiente y servirla de nuevo. Diferenciar esta recuperación lógica de la recuperación completa de un Mac y de sus secretos.
 
 El workflow de publicación exige los resultados de esta versión y de la huella de sus archivos de producto. Las dispensas del propietario se registran como `waived`, no como pruebas superadas, y el workflow solo las admite para las versiones y comprobaciones que enumera: en 1.0.0, la instalación en otro Mac limpio. Ninguna dispensa acepta otra versión o huella. Cambiar el producto invalida una aceptación anterior; `set_version.py` reinicia los estados al preparar otra versión. El archivo es un registro humano revisable, no una prueba de que las acciones físicas se hayan ejecutado.
+
+## Resultados de 1.0.2 (29 de octubre de 2026)
+
+1.0.2 añade la actualización del servidor desde Obsidian a través del conector USB y cambia el estilo del icono lateral. No cambia datos persistidos, identificadores, la copia USB, la importación de subrayados ni el formato de la biblioteca. El propietario confirma que realizó las cuatro comprobaciones manuales con 1.0.2 y que se superaron. Pasan las pruebas automáticas en macOS, Windows y Linux; la entrega del trabajo de launchd, la descarga verificada de una release real y el desempaquetado se han comprobado en un entorno aislado.
 
 ## Resultados de 1.0.1 (28 de octubre de 2026)
 

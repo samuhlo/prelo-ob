@@ -54,3 +54,17 @@ export function verifyUpdate(files: Record<string, ArrayBuffer>, expected: { id:
     throw new Error("La release no corresponde a esta versión de Prelo. No se ha cambiado nada.");
   return { minAppVersion };
 }
+
+// The Mac service is updated by its USB connector; Obsidian only asks for it and follows its progress.
+export type ServerUpdate = { version: string; state: "requested" | "running" | "complete" | "failed"; message: string };
+const SERVER_UPDATE_STATES: readonly string[] = ["requested", "running", "complete", "failed"];
+const isServerUpdateState = (value: string): value is ServerUpdate["state"] => SERVER_UPDATE_STATES.includes(value);
+
+export function parseServerUpdate(value: unknown): ServerUpdate | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const version: unknown = Reflect.get(value, "version"), state: unknown = Reflect.get(value, "state"), message: unknown = Reflect.get(value, "message");
+  if (typeof version !== "string" || typeof state !== "string" || !isServerUpdateState(state) || typeof message !== "string") return undefined;
+  return { version, state, message };
+}
+
+export const serverUpdatePending = (update?: ServerUpdate): boolean => update?.state === "requested" || update?.state === "running";

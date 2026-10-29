@@ -1,5 +1,12 @@
 # Cambios
 
+## 1.0.2 — Beta
+
+- «Actualizar servidor» en el aviso de Prelo y en Ajustes cuando el servicio del Mac es más antiguo que el plugin. El conector USB descarga el paquete para macOS de la release, comprueba su suma SHA-256 y repite la instalación en un trabajo de launchd aparte, con copia de seguridad y vuelta atrás. Tras actualizar el plugin, Prelo lo ofrece también en un aviso.
+- El icono lateral se ve como los demás y se pone amarillo al pasar el puntero.
+- El conector anterior a 1.0.2 no sabe actualizarse: esa primera vez se usa el paquete para macOS.
+- Aceptación de 1.0.2: instalación en Mac limpio, actualización en Obsidian, ida y vuelta USB con Kobo físico y recuperación de biblioteca, confirmadas por el propietario.
+
 ## 1.0.1 — Beta
 
 - Nuevo logotipo: PREL en palo grueso y la O dentro de una piedra amarilla, de la misma familia que Anaco. El icono lateral conserva la revista.

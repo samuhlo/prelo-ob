@@ -39,7 +39,9 @@
 @media(max-width:600px) { .margen-modal .setting-item { flex-wrap:wrap; } .margen-modal textarea { min-width:180px; } }
 
 /* Native workspace view. */
-.margen-ribbon { position:relative; color:var(--mg-accent-ink)!important; background:var(--mg-accent); border-radius:8px; }
+.margen-ribbon { position:relative; }
+/* At rest it matches the other ribbon icons; the brand colour only answers the pointer. */
+.margen-ribbon:hover { color:var(--mg-accent-ink)!important; background:var(--mg-accent); }
 .margen-ribbon::after { content:attr(data-count); position:absolute; right:-4px; top:-3px; min-width:15px; height:15px; padding:0 3px; border-radius:10px; background:var(--interactive-accent); color:var(--text-on-accent); font:700 9px/15px var(--font-interface); text-align:center; }
 .margen-ribbon[data-count="0"]::after { display:none; }
 .margen-note-action.is-selected { color:var(--mg-accent-ink); background:var(--mg-accent); border-radius:6px; }
