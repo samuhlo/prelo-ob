@@ -97,6 +97,10 @@ def test_usb_config_preserves_existing_vault_and_writes_bounded_login_agent(fixt
     assert result['auto_eject'] is False
     assert agents[0][0] == 'local.prelo.kobo'
     assert agents[0][1].is_file()
+    assert 'update_command' not in result
+    install_usb.install(runtime, env, label='local.prelo.kobo', update_command=['uv', 'run', '{release}/scripts/install.py'])
+    install_usb.install(runtime, env, label='local.prelo.kobo')
+    assert json.loads((runtime / 'usb.json').read_text())['update_command'] == ['uv', 'run', '{release}/scripts/install.py']
 
 
 def test_check_only_does_not_create_runtime_or_start_services(fixture, tmp_path, monkeypatch):

@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 import yaml
-from . import __version__
+from . import __version__, updater
 
 
 def digest(value):
@@ -347,8 +347,9 @@ def append_notes(vault, folder, highlights):
 
 
 class Worker:
-    def __init__(self, config):
+    def __init__(self, config, config_path=None):
         self.config = config
+        self.config_path = config_path
         self.vault = Path(config["vault"])
         self.state = Path(config["state"])
         self.state.mkdir(parents=True, exist_ok=True)
@@ -365,7 +366,31 @@ class Worker:
         return data if binary else json.loads(data)
 
     def report(self, state, message, device=""):
-        return self.api("/v1/device", {"state": state, "message": message, "device": device, "last_sync": self.last_sync, "version": __version__})
+        return self.api("/v1/device", {"state": state, "message": message, "device": device, "last_sync": self.last_sync,
+                                       "version": __version__, "updater": self.can_update()})
+
+    def can_update(self):
+        return bool(self.config_path and self.config.get("update_command"))
+
+    def update_service(self, request):
+        """Carry out a service update asked from Obsidian, once nothing is being generated."""
+        if not request or request.get("state") != "requested" or not self.can_update():
+            return
+        version = request["version"]
+        if any(job.get("state") in {"queued", "running"} for job in self.api("/v1/jobs")):
+            return
+        try:
+            self.api("/v1/service/update/claim", {"version": version})
+        except urllib.error.HTTPError as error:
+            if error.code == 409:
+                return
+            raise
+        try:
+            release = updater.fetch(version, Path(self.config_path).parent / "updates")
+            updater.launch(self.config_path, release, version)
+        except Exception as error:
+            message = str(error) if isinstance(error, ValueError) else "No se pudo preparar la actualización en el Mac."
+            self.api("/v1/service/update/report", {"version": version, "state": "failed", "message": message[:300]})
 
     def synchronize(self, mount):
         with (self.state / "usb.lock").open("a") as lock:
@@ -497,6 +522,7 @@ class Worker:
                         request_id = state["request"]
                     else:
                         self.report("ready", "Kobo conectado; todo sincronizado.")
+                self.update_service(state.get("update"))
                 time.sleep(5)
             except Exception as error:
                 # Never log note text, credentials, request bodies or arbitrary server responses.
@@ -515,7 +541,7 @@ def main():
     parser.add_argument("--config", type=Path, required=True)
     args = parser.parse_args()
     config = json.loads(args.config.read_text())
-    Worker(config).run()
+    Worker(config, args.config.resolve()).run()
 
 
 if __name__ == "__main__":

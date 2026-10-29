@@ -18,7 +18,7 @@ from .editor import ai_available, plan_publication
 from .epub import build_epub
 from .highlights import resolve
 from .artwork import generate_visuals
-from . import jobs, kobo, library
+from . import jobs, kobo, library, service_update
 from pydantic import BaseModel, Field
 from typing import Annotated, Literal
 
@@ -272,7 +272,8 @@ def register_sources(payload: SourceRegistration):
 
 @app.get("/v1/library", dependencies=[Depends(auth)])
 def library_status():
-    return {**library.dashboard(data_root()), "jobs": all_jobs(), "version": __version__}
+    return {**library.dashboard(data_root()), "jobs": all_jobs(), "version": __version__,
+            "service_update": service_update.current(data_root())}
 
 
 class LibraryAction(BaseModel):
@@ -350,6 +351,7 @@ class DeviceStatus(BaseModel):
     message: str = Field(max_length=500)
     device: str = Field(default="", max_length=100)
     last_sync: dict | None = None
+    updater: bool = False
 
 
 class KoboBook(BaseModel):
@@ -379,12 +381,12 @@ def update_inventory(payload: Inventory):
 
 @app.get("/v1/device", dependencies=[Depends(auth)])
 def device():
-    return library.device_state(data_root())
+    return {**library.device_state(data_root()), "update": service_update.current(data_root())}
 
 
 @app.post("/v1/device", dependencies=[Depends(auth)])
 def update_device(payload: DeviceStatus):
-    return library.device_state(data_root(), payload.model_dump())
+    return {**library.device_state(data_root(), payload.model_dump()), "update": service_update.current(data_root())}
 
 
 @app.post("/v1/device/sync", dependencies=[Depends(auth)])
@@ -394,6 +396,48 @@ def sync_device():
 
 def invalid(exc):
     return HTTPException(422, str(exc))
+
+
+class ServiceVersion(BaseModel):
+    version: str = Field(pattern=service_update.VERSION)
+
+
+class UpdateReport(ServiceVersion):
+    state: Literal["running", "failed"]
+    message: str = Field(min_length=1, max_length=300)
+
+
+@app.get("/v1/service/update", dependencies=[Depends(auth)])
+def service_update_status():
+    return {"version": __version__, "update": service_update.current(data_root())}
+
+
+@app.post("/v1/service/update", dependencies=[Depends(auth)], status_code=202)
+def request_service_update(payload: ServiceVersion):
+    with jobs.LOCK:
+        busy = BUILD_LOCK.locked() or bool(jobs.ACTIVE)
+    if busy:
+        raise HTTPException(409, "Espera a que termine la generación antes de actualizar el servidor.")
+    try:
+        return service_update.request(data_root(), payload.version)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.post("/v1/service/update/claim", dependencies=[Depends(auth)])
+def claim_service_update(payload: ServiceVersion):
+    try:
+        return service_update.claim(data_root(), payload.version)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.post("/v1/service/update/report", dependencies=[Depends(auth)])
+def report_service_update(payload: UpdateReport):
+    try:
+        return service_update.report(data_root(), payload.version, payload.state, payload.message)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
 
 
 class Removal(BaseModel):

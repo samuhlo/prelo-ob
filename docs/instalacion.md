@@ -110,6 +110,8 @@ Descarga el paquete de la nueva release, cierra Obsidian y ejecuta su instalador
 
 Desde 0.9.1, el plugin se actualiza en el propio Obsidian: pulsa «Actualizar ahora» en el aviso de Prelo o en Ajustes → Prelo. Descarga `main.js`, `manifest.json` y `styles.css` de la release, comprueba sus sumas SHA-256 y reinicia el plugin sin tocar `data.json`. Cada equipo se actualiza por separado; el servicio del Mac sigue necesitando el paquete para macOS.
 
+Desde 1.0.2, el servidor del Mac también se actualiza desde Obsidian. Cuando el plugin es más reciente que el servicio, el aviso de Prelo y Ajustes → Prelo ofrecen «Actualizar servidor». El servicio guarda la petición y el conector USB del Mac la recoge cuando no hay revistas generándose ni copias USB en curso. Descarga `prelo-macos` de la misma release, comprueba su suma SHA-256 y ejecuta este mismo instalador desde un trabajo de launchd aparte, con su copia de seguridad y su recuperación. El registro queda en `logs/update.log` de Application Support/Prelo. Un conector anterior a 1.0.2 no tiene esta función: actualiza esa vez con el paquete.
+
 También puedes actualizar desde BRAT. En instalación manual sustituye `main.js`, `manifest.json` y `styles.css`, conservando `data.json`. La versión 0.7 ya no necesita descargar un archivo WASM aparte; un archivo antiguo sobrante no impide usar el plugin.
 
 Las instalaciones existentes conservan las claves `margen_id`, `margen_lectura`, los nombres de EPUB y los marcadores de citas. No renombres esos datos para cambiar la marca visual.

@@ -5,7 +5,7 @@ import type { Draft, Publication } from "./main";
 import { deliveryState } from "./delivery";
 import { composerFromDraft, emptyComposer, resumable } from "./session";
 import { BookFilter, bookStatus, commandLabel, KoboBook, KoboOverview, visibleBooks } from "./reader";
-import { compareVersions } from "./updates";
+import { compareVersions, serverUpdatePending } from "./updates";
 import { matchesSearch, movePath, noteTitle } from "./selection";
 import { appendPreloLogo } from "./brand";
 import { writingModes, studyAids, languages, WritingMode, StudyAids, Language, adaptsContent, needsEditorialAI, looksGalician } from "./editorial";
@@ -27,7 +27,7 @@ type Library = {
   version?: string;
   issues?: { edition: string; kind: string }[];
   publications: Publication[];
-  device: { state: string; message: string; version?: string; heartbeat_at?: string; last_sync?: { at: string; added: number; sent: number } };
+  device: { state: string; message: string; version?: string; updater?: boolean; heartbeat_at?: string; last_sync?: { at: string; added: number; sent: number } };
   storage: { used_bytes: number; limit_bytes: number };
   jobs: { id: string; state: string; message: string; updated_at: string }[];
 };
@@ -137,6 +137,7 @@ export class StudioView extends ItemView {
       const changed = this.remoteSignature !== signature;
       this.remoteSignature = signature;
       this.library = library.json as Library;
+      this.plugin.serverStatus(library.json.version, library.json.device.updater, library.json.service_update);
       this.drafts = drafts.json as Draft[];
       this.kobo = kobo;
       this.aiAvailable = !!status.json.ai_available;
@@ -201,8 +202,7 @@ export class StudioView extends ItemView {
     if (!notice) return;
     notice.empty();
     const update = this.plugin.update;
-    const server = this.library?.version;
-    if (server) this.plugin.serverVersion = server;
+    const server = this.plugin.serverVersion ?? this.library?.version;
     for (const [name, version] of [["conector USB", this.library?.device.version], ["puente de IA", this.bridgeVersion]])
       if (server && version && compareVersions(server, version) === 1)
         notice.createEl("p", { text: `El ${name} usa ${version}; actualiza los conectores del Mac junto al servicio (${server}).` });
@@ -211,8 +211,16 @@ export class StudioView extends ItemView {
       button(notice, "Actualizar ahora", () => void this.plugin.installUpdate(), "download");
       button(notice, "Novedades", () => this.plugin.openUpdates(), "external-link");
     }
-    if (server && compareVersions(this.plugin.manifest.version, server) === 1)
-      notice.createEl("p", { text: `El servidor usa ${server}; este plugin usa ${this.plugin.manifest.version}. Actualiza el servicio y los conectores del Mac para disponer de las nuevas funciones.` });
+    const serverUpdate = this.plugin.serverUpdate;
+    if (serverUpdatePending(serverUpdate) && serverUpdate)
+      notice.createEl("p", { text: `Actualizando el servidor a ${serverUpdate.version}: ${serverUpdate.message}` });
+    else if (server && compareVersions(this.plugin.manifest.version, server) === 1) {
+      const failed = serverUpdate?.state === "failed" ? ` Último intento: ${serverUpdate.message}` : "";
+      if (this.plugin.serverUpdater) {
+        notice.createEl("p", { text: `El servidor usa ${server}; este plugin usa ${this.plugin.manifest.version}.${failed}` });
+        button(notice, "Actualizar servidor", () => void this.plugin.updateServer(), "server");
+      } else notice.createEl("p", { text: `El servidor usa ${server}; este plugin usa ${this.plugin.manifest.version}. Actualiza el servicio y los conectores del Mac con el paquete para macOS para disponer de las nuevas funciones.` });
+    }
     else if (server && compareVersions(server, this.plugin.manifest.version) === 1)
       notice.createEl("p", { text: `El servidor usa ${server}; actualiza este plugin (${this.plugin.manifest.version}) para disponer de sus nuevas opciones.` });
   }

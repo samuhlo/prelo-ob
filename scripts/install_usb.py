@@ -10,7 +10,7 @@ from install_common import load_agent, read_env, relative_folder, validate_vault
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def install(runtime, env_file, *, vault=None, folder=None, server_url=None, label="local.margen.kobo"):
+def install(runtime, env_file, *, vault=None, folder=None, server_url=None, label="local.margen.kobo", update_command=None):
     if sys.platform != "darwin":
         raise ValueError("La automatización USB de esta versión requiere macOS.")
     runtime = Path(runtime).expanduser().resolve()
@@ -26,6 +26,8 @@ def install(runtime, env_file, *, vault=None, folder=None, server_url=None, labe
                   highlights_folder=relative_folder(folder or config.get("highlights_folder", "Prelo/Subrayados")),
                   server_url=server_url or config.get("server_url", "http://127.0.0.1:8765"),
                   token=read_env(env_file)["MARGEN_TOKEN"])
+    if update_command is not None:
+        config["update_command"] = update_command
     config.setdefault("state", str(runtime / "usb-state"))
     config.setdefault("auto_eject", True)
     write_private(config_path, json.dumps(config, indent=2) + "\n")

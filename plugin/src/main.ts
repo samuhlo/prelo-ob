@@ -15,7 +15,7 @@ import { installPluginFiles, recoverPluginUpdate, UpdateTransaction } from "./in
 import { validateConnection, Connection } from "./connection";
 import type { KoboPlace } from "./delivery";
 import type { KoboBook } from "./reader";
-import { findUpdate, installable, PLUGIN_FILES, RELEASES_API, RELEASES_URL, ReleaseUpdate, UPDATE_INTERVAL, verifyUpdate } from "./updates";
+import { compareVersions, findUpdate, installable, parseServerUpdate, PLUGIN_FILES, RELEASES_API, RELEASES_URL, ReleaseUpdate, ServerUpdate, serverUpdatePending, UPDATE_INTERVAL, verifyUpdate } from "./updates";
 
 type Settings = {
   serverUrl: string; token: string; koboPath: string; outputFolder: string;
@@ -64,6 +64,10 @@ export default class Prelo extends Plugin {
   busy = false;
   update?: ReleaseUpdate;
   serverVersion?: string;
+  serverUpdater = false;
+  serverUpdate?: ServerUpdate;
+  private followingServer = false;
+  private settingsTab?: PreloSettings;
   updateMessage = "Aún no se han comprobado las versiones.";
   private checkingUpdates = false;
   private lastUpdateCheck = 0;
@@ -94,13 +98,16 @@ export default class Prelo extends Plugin {
     this.state.activeJob = stored?.activeJob;
     addIcon(MARGEN_ICON, '<path d="M49 23C37 15 23 15 10 18v63c14-4 26-2 39 5 13-7 26-9 41-5V18c-14-3-27-3-41 5Z" fill="none" stroke="currentColor" stroke-width="6" stroke-linejoin="round"/><path d="M49 24v60M22 31h15M22 42h15M22 54h15M62 56h15M62 68h15" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><rect x="60" y="29" width="20" height="17" rx="3" fill="currentColor"/>');
     this.registerView(STUDIO_TYPE, leaf => new StudioView(leaf, this));
-    this.addSettingTab(new PreloSettings(this.app, this));
+    this.settingsTab = new PreloSettings(this.app, this);
+    this.addSettingTab(this.settingsTab);
     this.addCommand({ id: "check-updates", name: "Comprobar actualizaciones", callback: () => void this.checkForUpdates(true) });
     this.registerInterval(window.setInterval(() => {
       if (this.state.settings.checkUpdates) void this.checkForUpdates();
     }, UPDATE_INTERVAL));
     this.app.workspace.onLayoutReady(() => {
       if (!this.unloaded && this.state.settings.checkUpdates) void this.checkForUpdates();
+      // Also runs right after updating the plugin, which reloads it.
+      if (!this.unloaded) void this.offerServerUpdate();
     });
     this.ribbon = this.addRibbonIcon(MARGEN_ICON, "Prelo", () => void this.openStudio());
     this.ribbon.addClass("margen-ribbon");
@@ -386,11 +393,80 @@ export default class Prelo extends Plugin {
       if (manual) new Notice(this.updateMessage);
     } finally {
       this.checkingUpdates = false;
-      if (!this.unloaded) for (const leaf of this.app.workspace.getLeavesOfType(STUDIO_TYPE))
-        if (leaf.view instanceof StudioView) leaf.view.updateVersionNotice();
+      this.versionsChanged();
     }
   }
   openUpdates() { window.open(this.update?.url ?? RELEASES_URL); }
+  versionsChanged() {
+    if (this.unloaded) return;
+    for (const leaf of this.app.workspace.getLeavesOfType(STUDIO_TYPE))
+      if (leaf.view instanceof StudioView) leaf.view.updateVersionNotice();
+    this.settingsTab?.refreshVersions?.();
+  }
+  serverBehind(): boolean {
+    return !!this.serverVersion && compareVersions(this.serverVersion, this.manifest.version) === -1;
+  }
+  // Called with what the service reports; resumes following an update started from any computer.
+  serverStatus(version: unknown, updater: unknown, update: unknown) {
+    if (typeof version === "string") this.serverVersion = version;
+    this.serverUpdater = updater === true;
+    this.serverUpdate = parseServerUpdate(update);
+    if (serverUpdatePending(this.serverUpdate)) void this.followServerUpdate();
+  }
+  async checkServer() {
+    try {
+      const [health, device] = await Promise.all([this.api("/health"), this.api("/v1/device")]);
+      this.serverStatus(health.json.version, device.json.updater, device.json.update);
+    } catch {
+      this.serverVersion = undefined;
+    }
+    this.versionsChanged();
+  }
+  private async offerServerUpdate() {
+    if (!this.state.settings.token) return;
+    await this.checkServer();
+    if (this.unloaded || !this.serverBehind() || !this.serverUpdater || serverUpdatePending(this.serverUpdate)) return;
+    const notice = new Notice(createFragment(f => {
+      f.appendText(`El servidor del Mac usa ${this.serverVersion} y este plugin ${this.manifest.version}. `);
+      f.createEl("button", { text: "Actualizar servidor", cls: "mod-cta" }).addEventListener("click", () => {
+        notice.hide(); void this.updateServer();
+      });
+    }), 20000);
+  }
+  async updateServer() {
+    if (this.followingServer) return;
+    const version = this.manifest.version;
+    try {
+      this.serverUpdate = parseServerUpdate((await this.api("/v1/service/update", { version })).json);
+    } catch (error) {
+      return void new Notice(error instanceof Error ? error.message : String(error), 12000);
+    }
+    new Notice(`Actualizando el servidor del Mac a ${version}. Tarda unos minutos y el servicio se reiniciará.`, 10000);
+    await this.followServerUpdate();
+  }
+  private async followServerUpdate() {
+    if (this.followingServer) return;
+    this.followingServer = true;
+    this.versionsChanged();
+    try {
+      const deadline = Date.now() + 50 * 60_000;
+      while (!this.unloaded && Date.now() < deadline) {
+        await new Promise(resolve => window.setTimeout(resolve, 5000));
+        let status;
+        try { status = (await this.api("/v1/service/update")).json; } catch { continue; /* restarting */ }
+        if (this.unloaded) return;
+        if (typeof status.version === "string") this.serverVersion = status.version;
+        this.serverUpdate = parseServerUpdate(status.update);
+        this.versionsChanged();
+        if (this.serverUpdate?.state === "complete") return void new Notice(`Servidor del Mac actualizado a ${this.serverVersion}.`, 10000);
+        if (this.serverUpdate?.state === "failed") return void new Notice(this.serverUpdate.message, 0);
+        if (!this.serverUpdate) return;
+      }
+    } finally {
+      this.followingServer = false;
+      this.versionsChanged();
+    }
+  }
   async installUpdate() {
     if (!this.update) await this.checkForUpdates(true);
     const update = this.update;
@@ -853,6 +929,7 @@ class PreviewModal extends Modal {
 }
 
 class PreloSettings extends PluginSettingTab {
+  refreshVersions?: () => void;
   constructor(app: App, private plugin: Prelo) { super(app, plugin); }
   display() {
     const container = this.containerEl;
@@ -861,12 +938,22 @@ class PreloSettings extends PluginSettingTab {
     container.createEl("h2", { text: "Prelo" });
     container.createEl("h3", { text: "Versiones y actualizaciones" });
     const versions = container.createEl("p");
-    let install: ButtonComponent | undefined;
+    let install: ButtonComponent | undefined, updateServer: ButtonComponent | undefined, serverSetting: Setting | undefined;
     // Highlight the install action only when a newer release is known.
     const refreshVersions = () => {
       versions.setText(`Plugin en este equipo: ${this.plugin.manifest.version} · Servidor: ${this.plugin.serverVersion ?? "sin comprobar"}. ${this.plugin.updateMessage}`);
       install?.buttonEl.toggleClass("mod-cta", !!this.plugin.update);
+      const { serverVersion, serverUpdate, serverUpdater } = this.plugin;
+      const pending = serverUpdatePending(serverUpdate), behind = this.plugin.serverBehind();
+      serverSetting?.setDesc(pending && serverUpdate ? `Actualizando a ${serverUpdate.version}: ${serverUpdate.message}`
+        : !serverVersion ? "Comprueba las versiones para saber si el servidor está al día."
+        : !behind ? `El servidor usa ${serverVersion} y está al día con este plugin.`
+        : serverUpdater ? `El servidor usa ${serverVersion}. El conector USB del Mac descarga la release, comprueba sus sumas SHA-256, guarda una copia de la biblioteca y reinicia el servicio. Espera a que no haya revistas generándose.${serverUpdate?.state === "failed" ? " Último intento: " + serverUpdate.message : ""}`
+        : `El servidor usa ${serverVersion}. Este Mac aún no admite actualizarlo desde Obsidian: hazlo una vez con el paquete para macOS.`);
+      updateServer?.setDisabled(pending || !behind || !serverUpdater);
+      updateServer?.buttonEl.toggleClass("mod-cta", behind && serverUpdater && !pending);
     };
+    this.refreshVersions = refreshVersions;
     refreshVersions();
     new Setting(container).setName("Buscar nuevas versiones automáticamente")
       .setDesc("Consulta las releases públicas de GitHub al iniciar y cada seis horas, incluidas las betas. No envía notas ni credenciales.")
@@ -875,13 +962,12 @@ class PreloSettings extends PluginSettingTab {
         if (value) { await this.plugin.checkForUpdates(true); refreshVersions(); }
       }));
     new Setting(container).setName("Actualizar Prelo")
-      .setDesc("«Actualizar ahora» descarga el plugin de la release de GitHub, comprueba sus sumas SHA-256 y lo reinicia en este equipo. Cada equipo se actualiza por separado. El servicio y los conectores del Mac se actualizan con el paquete para macOS.")
+      .setDesc("«Actualizar ahora» descarga el plugin de la release de GitHub, comprueba sus sumas SHA-256 y lo reinicia en este equipo. Cada equipo se actualiza por separado. El servidor del Mac se actualiza en el ajuste siguiente.")
       .addButton(b => b.setButtonText("Comprobar versiones").onClick(async () => {
         b.setDisabled(true);
         try {
           await this.plugin.checkForUpdates(true);
-          try { this.plugin.serverVersion = (await this.plugin.api("/health")).json.version; } catch { this.plugin.serverVersion = undefined; }
-          refreshVersions();
+          await this.plugin.checkServer();
         } finally { b.setDisabled(false); }
       }))
       .addButton(b => b.setButtonText("Ver novedades").onClick(() => this.plugin.openUpdates()))
@@ -893,6 +979,13 @@ class PreloSettings extends PluginSettingTab {
         });
         refreshVersions();
       });
+    serverSetting = new Setting(container).setName("Actualizar el servidor del Mac")
+      .addButton(b => {
+        updateServer = b;
+        b.setButtonText("Actualizar servidor").onClick(() => void this.plugin.updateServer());
+      });
+    refreshVersions();
+    void this.plugin.checkServer();
     new Setting(container).setName("Conexión con el servidor")
       .setDesc("Importa conexion-prelo.json, incluido en el paquete privado del panel.")
       .addButton(b => b.setButtonText("Importar conexión").onClick(() => this.plugin.showModal(new ConnectionModal(this.plugin))));

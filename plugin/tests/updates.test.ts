@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { hash } from "../src/core";
-import { compareVersions, findUpdate, installable, verifyUpdate } from "../src/updates";
+import { compareVersions, findUpdate, installable, parseServerUpdate, serverUpdatePending, verifyUpdate } from "../src/updates";
 const download = (version: string, name: string) => `https://github.com/samuhlo/prelo-ob/releases/download/${version}/${name}`;
 const release = (version: string, extras = {}) => ({ tag_name: version, draft: false, prerelease: true,
   assets: ["main.js", "manifest.json", "styles.css", "SHA256SUMS"].map(name => ({ name, state: "uploaded", browser_download_url: download(version, name) })), ...extras });
@@ -54,4 +54,14 @@ test("verified update must match checksums, plugin id and announced version", ()
   assert.throws(() => verifyUpdate(tampered, { id: "margen", version: "0.9.1" }), /main\.js/);
   assert.throws(() => verifyUpdate(releaseFiles({ ...manifest, id: "other" }), { id: "margen", version: "0.9.1" }));
   assert.throws(() => verifyUpdate(releaseFiles({ ...manifest, version: "0.9.2" }), { id: "margen", version: "0.9.1" }));
+});
+
+test("server update status is read only from a well-formed service answer", () => {
+  const running = parseServerUpdate({ version: "1.0.2", state: "running", message: "Instalando", extra: true });
+  assert.deepEqual(running, { version: "1.0.2", state: "running", message: "Instalando" });
+  assert.ok(serverUpdatePending(running));
+  assert.ok(!serverUpdatePending(parseServerUpdate({ version: "1.0.2", state: "complete", message: "" })));
+  assert.equal(parseServerUpdate({ version: "1.0.2", state: "unknown", message: "" }), undefined);
+  assert.equal(parseServerUpdate(null), undefined);
+  assert.ok(!serverUpdatePending(undefined));
 });
